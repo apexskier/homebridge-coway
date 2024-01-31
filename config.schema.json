@@ -1,73 +1,18 @@
 {
-  "pluginAlias": "ApexskierHomebridgeEeroPresence",
+  "pluginAlias": "ApexskierHomebridgeSmartEnvi",
   "pluginType": "platform",
   "schema": {
     "type": "object",
     "properties": {
-      "userToken": {
-        "title": "User Token",
+      "username": {
+        "title": "Username",
         "type": "string",
-        "description": "Authorized user token.",
         "required": true
       },
-      "network": {
-        "title": "Network Name",
+      "password": {
+        "title": "Password",
         "type": "string",
-        "description": "Name of the network to monitor, only required if you have multiple associated with your account.",
-        "required": false
-      },
-      "deviceTypes": {
-        "title": "Device Types",
-        "type": "array",
-        "description": "Device types that if presence is detected on will trigger occupancy.",
-        "default": ["phone", "watch"],
-        "items": {
-          "title": "Device Type",
-          "type": "string",
-          "typeahead": {
-            "source": [
-              "audio",
-              "generic",
-              "laptop_computer",
-              "phone",
-              "tablet",
-              "vacuum",
-              "watch"
-            ]
-          }
-        }
-      },
-      "minSignal": {
-        "title": "Signal Strength",
-        "type": "number",
-        "description": "Minimum signal strength (0 - 1) to be considered present.",
-        "minimum": 0,
-        "maximum": 1,
-        "default": 0.25,
-        "required": false
-      },
-      "pollTime": {
-        "title": "Poll Interval",
-        "type": "number",
-        "description": "Time in milliseconds between polls for occupancy.",
-        "minimum": 1,
-        "default": 5000,
         "required": true
-      },
-      "occupancyTimeout": {
-        "title": "Occupancy Timeout",
-        "type": "number",
-        "description": "Time in milliseconds to wait before setting unoccupied (approximately). See https://github.com/apexskier/homebridge-eero-presence/issues/2 for more info.",
-        "minimum": 1,
-        "default": 20000,
-        "required": true
-      },
-      "enableStatusLightAccessories": {
-        "title": "Enable Status Light Accessories",
-        "type": "boolean",
-        "description": "Enable status light accessories for each device.",
-        "default": false,
-        "required": false
       }
     }
   }

@@ -1,164 +1,259 @@
-import { Service, PlatformAccessory } from "homebridge";
+import { PlatformAccessory } from "homebridge";
+import convert from "color-convert";
 
-import { EeroPresenceHomebridgePlatform } from "./platform";
+import { SmartEnviHomebridgePlatform } from "./platform";
 
 export interface AccessoryContext {
-  eero: {
-    location: string;
-    model: string;
-    serial: string;
-    url: string;
-    resources: {
-      led_action: string;
-    };
+  device: {
+    id: number;
+    serial_no: string;
+    name: string;
   };
 }
 
-export class EeroPresencePlatformAccessory {
-  sensorService: Service;
+function fToC(f: number) {
+  return (f - 32) * (5 / 9);
+}
+
+function cToF(c: number) {
+  return c * (9 / 5) + 32;
+}
+
+export class SmartEnviPlatformAccessory {
+  data: {
+    current_mode: 1;
+    current_temperature: number;
+    device_status: 1;
+    state: 1 | 0; // 0 off, 1 on
+    status: 1;
+    night_light_setting: {
+      brightness: 50;
+      auto: false;
+      on: false;
+      off: true;
+      color: {
+        r: 255;
+        g: 255;
+        b: 255;
+      };
+    };
+    ambient_temperature: 63;
+    temperature_unit: "F" | "C";
+  } | null = null;
 
   constructor(
-    private readonly platform: EeroPresenceHomebridgePlatform,
+    private readonly platform: SmartEnviHomebridgePlatform,
     private readonly accessory: PlatformAccessory<AccessoryContext>,
   ) {
-    // set accessory information
-    const accessoryCharacteristics = this.accessory
+    this.accessory
       .getService(this.platform.Service.AccessoryInformation)!
-      .setCharacteristic(this.platform.Characteristic.Manufacturer, "Eero")
+      .setCharacteristic(this.platform.Characteristic.Manufacturer, "eheat")
       .setCharacteristic(
-        this.platform.Characteristic.Model,
-        this.accessory.context.eero.model,
+        this.platform.Characteristic.FirmwareRevision,
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        require("../package.json").version,
+      )
+      .setCharacteristic(
+        this.platform.Characteristic.Name,
+        this.accessory.context.device.name,
+      )
+      .setCharacteristic(
+        this.platform.Characteristic.SerialNumber,
+        this.accessory.context.device.serial_no,
       );
-    accessoryCharacteristics.setCharacteristic(
-      this.platform.Characteristic.SerialNumber,
-      this.accessory.context.eero.serial,
-    );
 
-    this.sensorService =
-      this.accessory.getService(this.platform.Service.OccupancySensor) ||
-      this.accessory.addService(this.platform.Service.OccupancySensor);
-
-    if (this.platform.config.enableStatusLightAccessories) {
-      const statusLightService =
-        this.accessory.getService(this.platform.Service.Lightbulb) ||
-        this.accessory.addService(this.platform.Service.Lightbulb);
-
-      // future feature: support the nightlight attribute of the eero response
-      // to allow control if the eero has a nightlight
-
-      statusLightService
-        .getCharacteristic(this.platform.Characteristic.Name)
-        .setValue("Status light");
-
-      statusLightService
-        .getCharacteristic(this.platform.Characteristic.On)
-        .onGet(async () => {
-          this.platform.log.debug("getting on", this.accessory.displayName);
-          const {
-            data: { led_on },
-          } = await (
-            await this.fetch(
-              `https://api-user.e2ro.com/${this.accessory.context.eero.url}`,
-            )
-          ).json();
-          return led_on;
-        })
-        .onSet(async (value) => {
-          this.platform.log.debug(
-            "setting on",
-            value,
-            this.accessory.displayName,
-          );
-          await this.fetch(
-            `https://api-user.e2ro.com${this.accessory.context.eero.resources.led_action}`,
-            {
-              method: "PUT",
-              body: JSON.stringify({
-                led_on: value,
-              }),
-            },
-          );
-        });
-
-      statusLightService
-        .getCharacteristic(this.platform.Characteristic.Brightness)
-        .onGet(async () => {
-          this.platform.log.debug(
-            "getting brightness",
-            this.accessory.displayName,
-          );
-          const {
-            data: { led_brightness },
-          } = await (
-            await this.fetch(
-              `https://api-user.e2ro.com/${this.accessory.context.eero.url}`,
-            )
-          ).json();
-          return led_brightness;
-        })
-        .onSet(async (value) => {
-          this.platform.log.debug(
-            "setting brightness",
-            value,
-            this.accessory.displayName,
-          );
-          await this.fetch(
-            `https://api-user.e2ro.com${this.accessory.context.eero.resources.led_action}`,
-            {
-              method: "PUT",
-              body: JSON.stringify({
-                led_on: !!value,
-                led_brightness: value,
-              }),
-            },
-          );
-        });
-    } else {
-      const lightService = this.accessory.getService(
-        this.platform.Service.Lightbulb,
+    const thermostatService =
+      this.accessory.getService(this.platform.Service.Thermostat) ||
+      this.accessory.addService(this.platform.Service.Thermostat);
+    thermostatService
+      .getCharacteristic(
+        this.platform.Characteristic.CurrentHeatingCoolingState,
+      )
+      .onGet(() =>
+        this.data?.state === 1
+          ? this.platform.Characteristic.CurrentHeatingCoolingState.HEAT
+          : this.platform.Characteristic.CurrentHeatingCoolingState.OFF,
       );
-      if (lightService) {
-        this.accessory.removeService(lightService);
-      }
-    }
+    thermostatService
+      .getCharacteristic(this.platform.Characteristic.TargetHeatingCoolingState)
+      .setProps({
+        validValues: [
+          this.platform.Characteristic.TargetHeatingCoolingState.OFF,
+          this.platform.Characteristic.TargetHeatingCoolingState.HEAT,
+        ],
+      })
+      .onGet(() =>
+        this.data?.state === 1
+          ? this.platform.Characteristic.TargetHeatingCoolingState.HEAT
+          : this.platform.Characteristic.TargetHeatingCoolingState.OFF,
+      )
+      .onSet(async (value) => {
+        await this.updateThermostat({ state: value as 0 | 1 });
+      });
+    thermostatService
+      .getCharacteristic(this.platform.Characteristic.CurrentTemperature)
+      .onGet(() => fToC(this.data?.ambient_temperature ?? 72));
+    thermostatService
+      .getCharacteristic(this.platform.Characteristic.TargetTemperature)
+      .onGet(() => Math.max(10, fToC(this.data?.current_temperature ?? 72)))
+      .onSet(async (value) => {
+        await this.updateThermostat({ temperature: cToF(Number(value)) });
+      });
+    thermostatService
+      .getCharacteristic(this.platform.Characteristic.TemperatureDisplayUnits)
+      .onGet(() =>
+        this.data?.temperature_unit === "F"
+          ? this.platform.Characteristic.TemperatureDisplayUnits.FAHRENHEIT
+          : this.platform.Characteristic.TemperatureDisplayUnits.CELSIUS,
+      );
+
+    const nightLightService =
+      this.accessory.getService(this.platform.Service.Lightbulb) ||
+      this.accessory.addService(this.platform.Service.Lightbulb);
+    nightLightService
+      .getCharacteristic(this.platform.Characteristic.Name)
+      .setValue("Night light");
+    nightLightService
+      .getCharacteristic(this.platform.Characteristic.On)
+      .onGet(() => this.data?.night_light_setting.on ?? false);
+    nightLightService
+      .getCharacteristic(this.platform.Characteristic.Brightness)
+      .onGet(() => this.data?.night_light_setting.brightness ?? 0);
+    nightLightService
+      .getCharacteristic(this.platform.Characteristic.Hue)
+      .onGet(() => {
+        // todo
+        const { r, g, b } = this.data?.night_light_setting.color ?? {
+          r: 255,
+          g: 255,
+          b: 255,
+        };
+        const [h] = convert.rgb.hsl([r, g, b]);
+        return h;
+      });
+    nightLightService
+      .getCharacteristic(this.platform.Characteristic.Saturation)
+      .onGet(() => {
+        // todo
+        const { r, g, b } = this.data?.night_light_setting.color ?? {
+          r: 255,
+          g: 255,
+          b: 255,
+        };
+        const [, s] = convert.rgb.hsl([r, g, b]);
+        return s;
+      });
+
+    // statusLightService
+    //   .getCharacteristic(this.platform.Characteristic.On)
+    //   .onGet(async () => {
+    //     this.platform.log.debug("getting on", this.accessory.displayName);
+    //     const {
+    //       data: { led_on },
+    //     } = await (
+    //       await this.fetch(
+    //         `https://api-user.e2ro.com/${this.accessory.context.eero.url}`
+    //       )
+    //     ).json();
+    //     return led_on;
+    //   })
+    //   .onSet(async (value) => {
+    //     this.platform.log.debug(
+    //       "setting on",
+    //       value,
+    //       this.accessory.displayName
+    //     );
+    //     await this.fetch(
+    //       `https://api-user.e2ro.com${this.accessory.context.eero.resources.led_action}`,
+    //       {
+    //         method: "PUT",
+    //         body: JSON.stringify({
+    //           led_on: value,
+    //         }),
+    //       }
+    //     );
+    //   });
+
+    // statusLightService
+    //   .getCharacteristic(this.platform.Characteristic.Brightness)
+    //   .onGet(async () => {
+    //     this.platform.log.debug(
+    //       "getting brightness",
+    //       this.accessory.displayName
+    //     );
+    //     const {
+    //       data: { led_brightness },
+    //     } = await (
+    //       await this.fetch(
+    //         `https://api-user.e2ro.com/${this.accessory.context.eero.url}`
+    //       )
+    //     ).json();
+    //     return led_brightness;
+    //   })
+    //   .onSet(async (value) => {
+    //     this.platform.log.debug(
+    //       "setting brightness",
+    //       value,
+    //       this.accessory.displayName
+    //     );
+    //     await this.fetch(
+    //       `https://api-user.e2ro.com${this.accessory.context.eero.resources.led_action}`,
+    //       {
+    //         method: "PUT",
+    //         body: JSON.stringify({
+    //           led_on: !!value,
+    //           led_brightness: value,
+    //         }),
+    //       }
+    //     );
+    //   });
+
+    this.poll();
   }
 
-  async fetch(input: RequestInfo | URL, init?: RequestInit) {
-    let response: Response;
-    try {
-      response = await fetch(input, {
-        ...init,
-        headers: {
-          ...init?.headers,
-          "content-type": "application/json",
-          cookie: `s=${this.platform.config.userToken}`,
-        },
-      });
-    } catch (error) {
-      this.platform.log.error("failed to fetch");
-      throw new this.platform.api.hap.HapStatusError(
-        this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
-      );
-    }
+  private async updateThermostat(
+    body: { state: 1 | 0 } | { temperature: number },
+  ) {
+    this.platform.log.info("updating thermostat", body);
+    await this.platform.fetch(
+      `https://app-apis.enviliving.com/apis/v1/device/update-temperature/${this.accessory.context.device.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      },
+    );
+    await this.updateStatus();
+  }
 
-    if (!response.ok) {
-      throw new this.platform.api.hap.HapStatusError(
-        this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
-      );
-    }
+  private async updateSettings(body: { child_lock_setting: boolean }) {
+    await this.platform.fetch(
+      `https://app-apis.enviliving.com/apis/v1/device/update/settings/${this.accessory.context.device.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      },
+    );
+    await this.updateStatus();
+  }
 
-    if (response.status === 401) {
-      throw new this.platform.api.hap.HapStatusError(
-        this.platform.api.hap.HAPStatus.INSUFFICIENT_AUTHORIZATION,
-      );
-    }
+  private poll() {
+    this.updateStatus()
+      .catch((err) => {
+        this.platform.log.error(
+          "update status error",
+          err,
+          (err as Error).stack,
+        );
+      })
+      .then(() => setTimeout(this.poll.bind(this), 10 * 1000));
+  }
 
-    if (response.status !== 200) {
-      throw new this.platform.api.hap.HapStatusError(
-        this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
-      );
-    }
-
-    return response;
+  private async updateStatus() {
+    const { data } = await (
+      await this.platform.fetch(
+        `https://app-apis.enviliving.com/apis/v1/device/${this.accessory.context.device.id}`,
+      )
+    ).json();
+    this.data = data;
   }
 }

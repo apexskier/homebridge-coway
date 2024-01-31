@@ -11,7 +11,7 @@ import {
 import { PLATFORM_NAME, PLUGIN_NAME } from "./settings";
 import {
   AccessoryContext,
-  EeroPresencePlatformAccessory,
+  SmartEnviPlatformAccessory,
 } from "./platformAccessory";
 import { Config } from "./config";
 
@@ -20,7 +20,7 @@ import { Config } from "./config";
  * This class is the main constructor for your plugin, this is where you should
  * parse the user config and discover/register accessories with Homebridge.
  */
-export class EeroPresenceHomebridgePlatform implements DynamicPlatformPlugin {
+export class SmartEnviHomebridgePlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service = this.api.hap.Service;
   public readonly Characteristic: typeof Characteristic =
     this.api.hap.Characteristic;
@@ -34,12 +34,13 @@ export class EeroPresenceHomebridgePlatform implements DynamicPlatformPlugin {
   ) {
     this.log.debug("Finished initializing platform:", this.config);
 
-    if (!config.pollTime) {
-      this.config.pollTime = 5000;
+    if (!config.username) {
+      this.log.error("missing username");
+      return;
     }
 
-    if (!config.userToken) {
-      this.log.error("missing user token");
+    if (!config.password) {
+      this.log.error("missing password");
       return;
     }
 
@@ -65,182 +66,101 @@ export class EeroPresenceHomebridgePlatform implements DynamicPlatformPlugin {
     this.accessories.push(accessory);
   }
 
+  authToken: string | null = null;
+
   async discoverDevices() {
     const config = this.config as unknown as Config;
 
-    const {
-      data: {
-        networks: { data: networks },
-      },
-    } = await (
-      await this.fetch("https://api-user.e2ro.com/2.2/account")
-    ).json();
-
-    const networkToUse = config.network
-      ? networks.find(({ name }) => name === config.network)
-      : networks[0];
-    if (!networkToUse) {
-      this.log.error(`network ${config.network} not found`);
-    }
-    this.log.info("using network", networkToUse.name);
-
-    const { data: network } = await (
-      await this.fetch(`https://api-user.e2ro.com${networkToUse.url}`)
-    ).json();
-
-    const { data: eeros } = await (
-      await this.fetch(`https://api-user.e2ro.com${network.resources.eeros}`)
-    ).json();
-    eeros
-      .filter((e) => e.provides_wifi)
-      .map((eero) => {
-        const uuid = this.api.hap.uuid.generate(eero.serial);
-
-        // see if an accessory with the same uuid has already been registered and restored from
-        // the cached devices we stored in the `configureAccessory` method above
-        const existingAccessory = this.accessories.find(
-          (accessory) => accessory.UUID === uuid,
-        );
-        if (existingAccessory) {
-          // the accessory already exists
-          this.log.info(
-            "Restoring existing accessory from cache:",
-            existingAccessory.displayName,
-            eero.serial,
-          );
-          existingAccessory.context.eero = eero;
-          this.api.updatePlatformAccessories([existingAccessory]);
-
-          new EeroPresencePlatformAccessory(this, existingAccessory);
-        } else {
-          this.log.info("Adding new accessory", eero.location, eero.serial);
-
-          // create a new accessory
-          const accessory = new this.api.platformAccessory(
-            [eero.location, eero.model].join(" "),
-            uuid,
-          ) as PlatformAccessory<AccessoryContext>;
-          accessory.context.eero = eero;
-
-          new EeroPresencePlatformAccessory(this, accessory);
-
-          this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [
-            accessory,
-          ]);
-          this.accessories.push(accessory);
-        }
-      });
-
-    this.log.debug("starting polling");
-    this.poll(network.resources.devices);
-  }
-
-  private poll(deviceEndpoint: string) {
-    this.checkOccupancy(deviceEndpoint)
-      .catch((err) => {
-        this.log.error(err);
-      })
-      .then(() => {
-        setTimeout(() => {
-          this.poll(deviceEndpoint);
-        }, this.config.pollTime);
-      });
-  }
-
-  private lastOccupied = new Map<string, Date>();
-
-  private async checkOccupancy(deviceEndpoint: string) {
-    const { data: devices } = (await (
-      await fetch(`https://api-user.e2ro.com${deviceEndpoint}`, {
-        method: "GET",
+    const loginRequest = new FormData();
+    loginRequest.append("username", config.username);
+    loginRequest.append("password", config.password);
+    loginRequest.append("login_type", `1`); // 1=email?
+    loginRequest.append("device_type", "ios");
+    loginRequest.append("device_id", "D46E2A18-EE5D-48FF-AFE8-AAAAAAAAAAAA");
+    const loginResponse = await this.fetch(
+      "https://app-apis.enviliving.com/apis/v1/auth/login",
+      {
+        method: "POST",
         headers: {
-          "content-type": "application/json",
-          cookie: `s=${this.config.userToken}`,
+          "Content-Type": "application/x-www-form-urlencoded",
         },
-      })
-    ).json()) as {
+        body: Array.from(
+          loginRequest as unknown as ReadonlyArray<[string, string]>,
+        )
+          .map(([name, value]) => `${name}=${value}`)
+          .join("&"),
+      },
+    );
+    const {
+      data: { token: authToken },
+    } = (await loginResponse.json()) as { data: { token: string } };
+    this.authToken = authToken;
+
+    const listResponse = await this.fetch(
+      "https://app-apis.enviliving.com/apis/v1/device/list",
+      {
+        headers: {
+          Authorization: "Bearer " + authToken,
+        },
+      },
+    );
+    const { data: devices } = (await listResponse.json()) as {
       data: ReadonlyArray<{
-        connected: boolean;
-        connection_type: string;
-        connectivity: { score: number };
-        device_type: string;
-        display_name: string;
-        source: { serial_number: string; location: string };
+        id: number;
+        ambient_temperature: number; // F
+        current_mode: number;
+        current_temperature: number; // F - target
+        device_status: number;
+        group_id: string;
+        group_name: string;
+        location_name: string;
+        name: string;
+        serial_no: string;
+        state: number;
+        status: number;
+        temperature_unit: "F" | "C";
+        user_id: number;
       }>;
     };
 
-    const now = new Date();
-
-    const connectedDevices = devices
-      .filter(
-        (device) =>
-          (this.config.deviceTypes || ["phone", "watch"]).includes(
-            device.device_type,
-          ) &&
-          device.connection_type === "wireless" &&
-          device.connected,
-      )
-      .filter(
-        ({ connectivity: { score } }) => score > (this.config.minSignal || 0.7),
+    for (const device of devices) {
+      const deviceEndpoint = device.serial_no;
+      const existingAccessory = this.accessories.find(
+        (accessory) =>
+          accessory.UUID === this.api.hap.uuid.generate(deviceEndpoint),
       );
-    connectedDevices.forEach(({ source: { serial_number } }) => {
-      this.lastOccupied.set(this.api.hap.uuid.generate(serial_number), now);
-    });
-    this.log.debug(
-      "connected devices:",
-      connectedDevices
-        .map(
-          ({ display_name, source: { location } }) =>
-            `${location}: ${display_name}`,
-        )
-        .join(", "),
-    );
-
-    this.accessories.forEach((accessory) => {
-      const status =
-        now.getTime() -
-          (this.lastOccupied.get(accessory.UUID)?.getTime() ?? 0) <
-        (this.config.occupancyTimeout ?? 20000)
-          ? this.Characteristic.OccupancyDetected.OCCUPANCY_DETECTED
-          : this.Characteristic.OccupancyDetected.OCCUPANCY_NOT_DETECTED;
-      const occupancyService = accessory.getService(
-        this.Service.OccupancySensor,
-      );
-      if (occupancyService) {
-        const detected = occupancyService.getCharacteristic(
-          this.Characteristic.OccupancyDetected,
-        ).value;
-        if (detected !== status) {
-          this.log.info(
-            `${accessory.displayName} now ${
-              status ===
-              this.Characteristic.OccupancyDetected.OCCUPANCY_DETECTED
-                ? "occupied"
-                : "unoccupied"
-            }`,
-          );
-          occupancyService?.updateCharacteristic(
-            this.Characteristic.OccupancyDetected,
-            status,
-          );
-        }
+      if (existingAccessory) {
+        this.log.info("Restoring existing accessory from cache:", device.name);
+        new SmartEnviPlatformAccessory(this, existingAccessory);
+      } else {
+        this.log.info("Adding new accessory:", device.name);
+        const accessory = new this.api.platformAccessory<AccessoryContext>(
+          device.name,
+          this.api.hap.uuid.generate(deviceEndpoint),
+        );
+        (accessory.context as AccessoryContext).device = device;
+        new SmartEnviPlatformAccessory(this, accessory);
+        this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [
+          accessory,
+        ]);
       }
-    });
+    }
   }
 
   async fetch(input: RequestInfo | URL, init?: RequestInit) {
-    let response;
+    let response: Response;
     try {
       response = await fetch(input, {
         ...init,
         headers: {
           ...init?.headers,
-          "content-type": "application/json",
-          cookie: `s=${this.config.userToken}`,
+          ...(this.authToken
+            ? { Authorization: "Bearer " + this.authToken }
+            : {}),
         },
       });
     } catch (error) {
-      this.log.error("failed to fetch");
+      this.log.error("failed to fetch", error);
       throw new this.api.hap.HapStatusError(
         this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
       );
