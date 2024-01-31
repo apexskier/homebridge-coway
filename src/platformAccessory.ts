@@ -215,13 +215,17 @@ export class SmartEnviPlatformAccessory {
     body: { state: 1 | 0 } | { temperature: number },
   ) {
     this.platform.log.info("updating thermostat", body);
-    await this.platform.fetch(
+    const response = await this.platform.fetch(
       `https://app-apis.enviliving.com/apis/v1/device/update-temperature/${this.accessory.context.device.id}`,
       {
         method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(body),
       },
     );
+    this.platform.log.info("update thermostat response", await response.json());
     await this.updateStatus();
   }
 
@@ -230,6 +234,9 @@ export class SmartEnviPlatformAccessory {
       `https://app-apis.enviliving.com/apis/v1/device/update/settings/${this.accessory.context.device.id}`,
       {
         method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(body),
       },
     );

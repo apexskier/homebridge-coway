@@ -167,18 +167,21 @@ export class SmartEnviHomebridgePlatform implements DynamicPlatformPlugin {
     }
 
     if (!response.ok) {
+      this.log.warn("non-ok response");
       throw new this.api.hap.HapStatusError(
         this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
       );
     }
 
     if (response.status === 401) {
+      this.log.warn("401 response");
       throw new this.api.hap.HapStatusError(
         this.api.hap.HAPStatus.INSUFFICIENT_AUTHORIZATION,
       );
     }
 
     if (response.status !== 200) {
+      this.log.warn("non-200 response");
       throw new this.api.hap.HapStatusError(
         this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
       );
