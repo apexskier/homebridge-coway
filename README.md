@@ -5,3 +5,5 @@
 </p>
 
 # Homebridge Smart Envi
+
+This extension provides thermostat and night light control for the [eheat Smart Envi](https://www.eheat.com/pages/learn-more-about-the-smart-envi.html) wall heater.

@@ -40,15 +40,16 @@ interface OnlineDeviceData {
   ambient_temperature: number;
   device_status: 1; // 0 offline, 1 online ?
   state: 1 | 0; // 0 off, 1 on ?
+  // TODO: figure out what these are doing - is this a difference between current and target heating state?
   current_mode: 1; // ?
   status: 1; // ?
   firmware_version: string;
   temperature_unit: "F" | "C"; // ?
   auto: {
+    // ?
     current_temperature: number;
     state: 1;
   };
-  is_hold: boolean;
   night_light_setting: NightLightData;
 }
 
@@ -81,6 +82,13 @@ export class SmartEnviPlatformAccessory {
         this.platform.Characteristic.SerialNumber,
         this.accessory.context.device.serial_no,
       );
+
+    const logSet =
+      (label: string, fn: (value: CharacteristicValue) => Promise<void>) =>
+      (value: CharacteristicValue) => {
+        this.platform.log.info(label, value);
+        return fn(value);
+      };
 
     const thermostatService =
       this.accessory.getService(this.platform.Service.Thermostat) ||
@@ -168,53 +176,50 @@ export class SmartEnviPlatformAccessory {
       // return data.night_light_setting.auto
       //   ? data.night_light_setting.brightness > 0
       //   : data.night_light_setting.on;
-      .onGet(() => !this.guardedOnlineData().night_light_setting.off);
+      .onGet(() => !this.guardedOnlineData().night_light_setting.off)
+      .onSet(
+        logSet("setting night light on", async (value) =>
+          this.updateNightLightSettings({
+            on: value as boolean,
+            off: !value as boolean,
+            auto: false,
+          }),
+        ),
+      );
     // TODO: all this needs testing still
     //
     // NOTE: both envi and apple don't actually allow setting the brightness
     // component of the actual color, brightness is managed separately
     //
     // according to https://nrchkb.github.io/wiki/service/lightbulb/, homekit uses HSV
-    const wrapLog =
-      (label: string, fn: (value: CharacteristicValue) => Promise<void>) =>
-      (value: CharacteristicValue) => {
-        this.platform.log.info(label, value);
-        return fn(value);
-      };
     nightLightService
       .getCharacteristic(this.platform.Characteristic.Brightness)
       .onGet(() => this.guardedOnlineData().night_light_setting.brightness)
       .onSet(
-        wrapLog("setting brightness", async (value) =>
+        logSet("setting brightness", async (value) =>
           // value between 0 and 100
           this.updateNightLightSettings({ brightness: value as number }),
         ),
       );
     nightLightService
       .getCharacteristic(this.platform.Characteristic.Hue)
-      .onGet(() => {
-        const [h] = this.hsvColor();
-        return h;
-      })
+      .onGet(() => this.hsvColor()[0])
       .onSet(
-        wrapLog("setting hue", async (value) => {
+        logSet("setting hue", async (h) => {
           // value between 0 and 360
           const [, s, v] = this.hsvColor();
-          const [r, g, b] = convert.hsv.rgb([value as number, s, v]);
+          const [r, g, b] = convert.hsv.rgb([h as number, s, v]);
           return this.updateNightLightSettings({ color: { r, g, b } });
         }),
       );
     nightLightService
       .getCharacteristic(this.platform.Characteristic.Saturation)
-      .onGet(() => {
-        const [, s] = this.hsvColor();
-        return s;
-      })
+      .onGet(() => this.hsvColor()[1])
       .onSet(
-        wrapLog("setting saturation", async (value) => {
+        logSet("setting saturation", async (s) => {
           // value between 0 and 100
           const [h, , v] = this.hsvColor();
-          const [r, g, b] = convert.hsv.rgb([h, value as number, v]);
+          const [r, g, b] = convert.hsv.rgb([h, s as number, v]);
           return this.updateNightLightSettings({ color: { r, g, b } });
         }),
       );
