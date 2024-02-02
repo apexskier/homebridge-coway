@@ -167,26 +167,45 @@ export class SmartEnviHomebridgePlatform implements DynamicPlatformPlugin {
     }
 
     if (!response.ok) {
-      this.log.warn("non-ok response");
+      this.log.warn("non-ok response", await response.text());
       throw new this.api.hap.HapStatusError(
         this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
       );
     }
 
     if (response.status === 401) {
-      this.log.warn("401 response");
+      this.log.warn("401 response", await response.text());
       throw new this.api.hap.HapStatusError(
         this.api.hap.HAPStatus.INSUFFICIENT_AUTHORIZATION,
       );
     }
 
     if (response.status !== 200) {
-      this.log.warn("non-200 response");
+      this.log.warn("non-200 response", await response.text());
       throw new this.api.hap.HapStatusError(
         this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
       );
     }
 
     return response;
+  }
+
+  public async updateUserSettings(data: { temperature_unit: "F" | "C" }) {
+    const request = new FormData();
+    for (const key in data) {
+      request.append(key, data[key]);
+    }
+    await this.fetch(
+      "https://app-apis.enviliving.com/apis/v1/user-settings/update",
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: Array.from(request as unknown as ReadonlyArray<[string, string]>)
+          .map(([name, value]) => `${name}=${value}`)
+          .join("&"),
+      },
+    );
   }
 }

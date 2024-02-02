@@ -10,7 +10,8 @@
       "request": "launch",
       "program": "${workspaceFolder}/index.js",
       "env": {
-        "USER_TOKEN": ""
+        "USERNAME": "",
+        "PASSWORD": ""
       }
     }
   ]
