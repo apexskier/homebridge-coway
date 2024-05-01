@@ -128,6 +128,9 @@ export class SmartEnviPlatformAccessory {
       });
     thermostatService
       .getCharacteristic(this.platform.Characteristic.TargetTemperature)
+      .setProps({
+        maxValue: 33,
+      })
       .onGet(() => {
         const data = this.guardedOnlineData();
         if (data.temperature_unit === "F") {
@@ -245,7 +248,12 @@ export class SmartEnviPlatformAccessory {
     await this.updateStatus();
   }
 
-  private async updateNightLightSettings(body: Partial<NightLightData>) {
+  private async updateNightLightSettings(settings: Partial<NightLightData>) {
+    const body = JSON.stringify({
+      ...this.guardedOnlineData().night_light_setting,
+      ...settings,
+    });
+    this.platform.log.debug("updating night light settings", body);
     await this.platform.fetch(
       `https://app-apis.enviliving.com/apis/v1/device/night-light-setting/${this.accessory.context.device.id}`,
       {
@@ -253,10 +261,7 @@ export class SmartEnviPlatformAccessory {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          ...this.guardedOnlineData(),
-          body,
-        }),
+        body,
       },
     );
     await this.updateStatus();
