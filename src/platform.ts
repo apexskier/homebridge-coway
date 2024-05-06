@@ -48,10 +48,11 @@ export class SmartEnviHomebridgePlatform implements DynamicPlatformPlugin {
     // Dynamic Platform plugins should only register new accessories after this event was fired,
     // in order to ensure they weren't added to homebridge already. This event can also be used
     // to start discovery of new accessories.
-    this.api.on("didFinishLaunching", () => {
+    this.api.on("didFinishLaunching", async () => {
       log.debug("Executed didFinishLaunching callback");
       // run the method to discover / register your devices as accessories
-      this.discoverDevices();
+      await this.authorize();
+      await this.discoverDevices();
     });
   }
 
@@ -69,40 +70,8 @@ export class SmartEnviHomebridgePlatform implements DynamicPlatformPlugin {
   authToken: string | null = null;
 
   async discoverDevices() {
-    const config = this.config as unknown as Config;
-
-    const loginRequest = new FormData();
-    loginRequest.append("username", config.username);
-    loginRequest.append("password", config.password);
-    loginRequest.append("login_type", `1`); // 1=email?
-    loginRequest.append("device_type", "ios");
-    loginRequest.append("device_id", "D46E2A18-EE5D-48FF-AFE8-AAAAAAAAAAAA");
-    const loginResponse = await this.fetch(
-      "https://app-apis.enviliving.com/apis/v1/auth/login",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: Array.from(
-          loginRequest as unknown as ReadonlyArray<[string, string]>,
-        )
-          .map(([name, value]) => `${name}=${value}`)
-          .join("&"),
-      },
-    );
-    const {
-      data: { token: authToken },
-    } = (await loginResponse.json()) as { data: { token: string } };
-    this.authToken = authToken;
-
     const listResponse = await this.fetch(
       "https://app-apis.enviliving.com/apis/v1/device/list",
-      {
-        headers: {
-          Authorization: "Bearer " + authToken,
-        },
-      },
     );
     const { data: devices } = (await listResponse.json()) as {
       data: ReadonlyArray<{
@@ -147,6 +116,35 @@ export class SmartEnviHomebridgePlatform implements DynamicPlatformPlugin {
     }
   }
 
+  async authorize() {
+    const config = this.config as unknown as Config;
+
+    const loginRequest = new FormData();
+    loginRequest.append("username", config.username);
+    loginRequest.append("password", config.password);
+    loginRequest.append("login_type", `1`); // 1=email?
+    loginRequest.append("device_type", "ios");
+    loginRequest.append("device_id", "D46E2A18-EE5D-48FF-AFE8-AAAAAAAAAAAA");
+    const loginResponse = await this.fetch(
+      "https://app-apis.enviliving.com/apis/v1/auth/login",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: Array.from(
+          loginRequest as unknown as ReadonlyArray<[string, string]>,
+        )
+          .map(([name, value]) => `${name}=${value}`)
+          .join("&"),
+      },
+    );
+    const {
+      data: { token: authToken },
+    } = (await loginResponse.json()) as { data: { token: string } };
+    this.authToken = authToken;
+  }
+
   async fetch(input: RequestInfo | URL, init?: RequestInit) {
     let response: Response;
     try {
@@ -166,10 +164,19 @@ export class SmartEnviHomebridgePlatform implements DynamicPlatformPlugin {
       );
     }
 
-    if (!response.ok) {
-      this.log.warn("non-ok response", await response.text());
+    if (response.status === 403) {
+      if (this.authToken) {
+        this.authToken = "";
+        this.log.warn(
+          "auth token expired, reauthenticating and retrying",
+          await response.text(),
+        );
+        await this.authorize();
+        return this.fetch(input, init);
+      }
+      this.log.warn("403 response", await response.text());
       throw new this.api.hap.HapStatusError(
-        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+        this.api.hap.HAPStatus.INSUFFICIENT_PRIVILEGES,
       );
     }
 
@@ -177,6 +184,13 @@ export class SmartEnviHomebridgePlatform implements DynamicPlatformPlugin {
       this.log.warn("401 response", await response.text());
       throw new this.api.hap.HapStatusError(
         this.api.hap.HAPStatus.INSUFFICIENT_AUTHORIZATION,
+      );
+    }
+
+    if (!response.ok) {
+      this.log.warn("non-ok response", await response.text());
+      throw new this.api.hap.HapStatusError(
+        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
       );
     }
 
