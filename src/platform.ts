@@ -165,19 +165,13 @@ export class SmartEnviHomebridgePlatform implements DynamicPlatformPlugin {
     }
 
     if (response.status === 403) {
-      if (this.authToken) {
-        this.authToken = "";
-        this.log.warn(
-          "auth token expired, reauthenticating and retrying",
-          await response.text(),
-        );
-        await this.authorize();
-        return this.fetch(input, init);
-      }
-      this.log.warn("403 response", await response.text());
-      throw new this.api.hap.HapStatusError(
-        this.api.hap.HAPStatus.INSUFFICIENT_PRIVILEGES,
+      this.authToken = "";
+      this.log.warn(
+        "auth token expired, reauthenticating and retrying",
+        await response.text(),
       );
+      await this.authorize();
+      return this.fetch(input, init);
     }
 
     if (response.status === 401) {
