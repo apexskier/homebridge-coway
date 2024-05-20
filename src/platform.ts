@@ -124,7 +124,11 @@ export class SmartEnviHomebridgePlatform implements DynamicPlatformPlugin {
     loginRequest.append("password", config.password);
     loginRequest.append("login_type", `1`); // 1=email?
     loginRequest.append("device_type", "ios");
-    loginRequest.append("device_id", "D46E2A18-EE5D-48FF-AFE8-AAAAAAAAAAAA");
+    loginRequest.append(
+      "device_id",
+      this.api.hap.uuid.generate(Math.random().toString()),
+    );
+    this.authToken = "";
     const loginResponse = await this.fetch(
       "https://app-apis.enviliving.com/apis/v1/auth/login",
       {
@@ -135,7 +139,10 @@ export class SmartEnviHomebridgePlatform implements DynamicPlatformPlugin {
         body: Array.from(
           loginRequest as unknown as ReadonlyArray<[string, string]>,
         )
-          .map(([name, value]) => `${name}=${value}`)
+          .map(
+            ([name, value]) =>
+              `${name}=${encodeURIComponent(value).split("*").join("%2A")}`,
+          )
           .join("&"),
       },
     );
@@ -167,7 +174,9 @@ export class SmartEnviHomebridgePlatform implements DynamicPlatformPlugin {
     if (response.status === 403) {
       this.authToken = "";
       this.log.warn(
-        "auth token expired, reauthenticating and retrying",
+        `auth token expired, reauthenticating and retrying (${
+          init?.method ?? "GET"
+        } ${input.toString()})`,
         await response.text(),
       );
       await this.authorize();
