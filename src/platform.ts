@@ -231,10 +231,11 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
       },
     );
 
+    // TODO: refresh token
     const {
-      data: { accessToken, refreshToken },
+      data: { accessToken },
     } = (await tokenResponse.json()) as {
-      data: { accessToken: string; refreshToken };
+      data: { accessToken: string; refreshToken: string };
     };
     this.authToken = accessToken;
   }
