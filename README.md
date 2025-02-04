@@ -4,6 +4,23 @@
 
 </p>
 
-# Homebridge Smart Envi
+# Homebridge Coway Airmega
 
-This extension provides thermostat and night light control for the [eheat Smart Envi](https://www.eheat.com/pages/learn-more-about-the-smart-envi.html) wall heater.
+This extension provides control for the [Coway Airmega 250S](https://cowaymega.com/products/airmega-250) air purifier. Other models may be supported as well.
+
+## Unsupported
+
+These features appear to be supported by the Coway API and Homebridge, but aren't populated for the 250S model.
+
+* Humidity
+* Temperature
+* VOC density
+
+I've intentionally not implemented a few features since they clutter the Home app or don't make sense.
+
+* Light (switching between all on, AQI off, and all off)
+* Outdoor air quality
+
+And a few things are implemented but not really working
+
+* Filter Maintenance status

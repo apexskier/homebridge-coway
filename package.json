@@ -1,15 +1,15 @@
 {
-  "displayName": "Smart Envi",
-  "name": "@apexskier/homebridge-smart-envi",
-  "version": "1.0.4",
-  "description": "Control the Eheat Smart Envi heater in homebridge.",
+  "displayName": "Coway Airmega",
+  "name": "@apexskier/homebridge-airmega",
+  "version": "1.0.0",
+  "description": "Control the Coway Airmega 250S air purifier in homebridge.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/apexskier/homebridge-smart-envi.git"
+    "url": "git+https://github.com/apexskier/homebridge-airmega.git"
   },
   "bugs": {
-    "url": "https://github.com/apexskier/homebridge-smart-envi/issues"
+    "url": "https://github.com/apexskier/homebridge-airmega/issues"
   },
   "funding": [
     {
@@ -33,7 +33,6 @@
     "homebridge-plugin"
   ],
   "devDependencies": {
-    "@types/color-convert": "^2.0.3",
     "@typescript-eslint/eslint-plugin": "^5.62.0",
     "@typescript-eslint/parser": "^5.62.0",
     "eslint": "^8.45.0",
@@ -46,6 +45,6 @@
     "typescript": "^4.9.5"
   },
   "dependencies": {
-    "color-convert": "^2.0.1"
+    "node-html-parser": "^7.0.1"
   }
 }

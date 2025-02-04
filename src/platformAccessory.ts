@@ -1,268 +1,491 @@
 import { CharacteristicValue, PlatformAccessory } from "homebridge";
 import convert from "color-convert";
 
-import { SmartEnviHomebridgePlatform } from "./platform";
+import { CowayHomebridgePlatform as CowayHomebridgePlatform } from "./platform";
 
 export interface AccessoryContext {
   device: {
-    id: number;
-    serial_no: string;
-    name: string;
+    barcode: string;
+    dvcModel: string;
+    dvcNick: string;
+    dvcBrandCd: string;
   };
 }
 
-function fToC(f: number) {
-  return (f - 32) * (5 / 9);
+enum FunctionId {
+  Power = "0001",
+  Mode = "0002",
+  Fan = "0003",
+  Light = "0007",
 }
 
-function cToF(c: number) {
-  return c * (9 / 5) + 32;
+type FunctionValue = {
+  [FunctionId.Power]: Power;
+  [FunctionId.Mode]: Mode;
+  [FunctionId.Fan]: Fan;
+  [FunctionId.Light]: Light;
+};
+
+type FunctionI<T extends FunctionId> = {
+  funcId: T;
+  cmdVal: FunctionValue[T];
+};
+
+type ControlData = {
+  devId: string;
+  funcList: ReadonlyArray<FunctionI<FunctionId>>;
+  dvcTypeCd: string;
+  isMultiControl: boolean;
+};
+
+enum Power {
+  On = "1",
+  Off = "0",
 }
 
-interface NightLightData {
-  brightness: number; // 0 to 100 ?
-  auto: boolean;
+enum Light {
+  On = "2",
+  AQIOff = "1",
+  Off = "0",
+}
 
-  // why have both?
-  on: boolean;
-  off: boolean;
+enum Fan {
+  Low = "1",
+  Medium = "2",
+  High = "3",
+  Off = "0",
+}
 
-  color: {
-    r: number; // 0 to 255
-    g: number; // 0 to 255
-    b: number; // 0 to 255
+enum Mode {
+  Manual = "0",
+  Smart = "1",
+  Sleep = "2",
+  Rapid = "5",
+  Off = "4",
+}
+
+enum AirQuality {
+  Excellent = "1",
+  Good = "2",
+  Fair = "3",
+  Inferior = "4",
+}
+
+interface Response<Data> {
+  code: "S1000" | string;
+  message: "OK" | string;
+  traceId: string; // I don't need this
+  data: Data;
+}
+
+interface DeviceData {
+  analysisStartDt: string; // "202502040140"
+  analysisEndDt: string; // "202502040740"
+  closeOffSceduleId: number; // -1 indicates none?
+  closeOnSceduleId: number; // 49314
+  elapsedHeartServiceDate: string; // ""
+  filterList: ReadonlyArray<{
+    changeCycle: string; // "3" | "12"
+    cycleInfo: string; // "W" | "M"
+    filterCode: string; // "3109143" | "3109144"
+    filterName: string; // "극세사망 프리필터" | "Max2 필터"
+    filterPer: number; // percent, as x out of 100;
+    sort: number; // appears already sorted
+    lastChangeDate: string; // e.g. "20250130"
+  }>;
+  IAQ: {
+    // inside air quality?
+    co2: string; // ""
+    dustpm1: string; // ""
+    dustpm10: string; // "15"
+    dustpm25: string; // "1"
+    humidity: string; // ""
+    inairquality: string; // ""
+    temperature: string; // ""
+    vocs: string; // ""
+    rpm: string; // ""
   };
-}
-
-interface OnlineDeviceData {
-  // value here is F if `temperature_unit` is F, C if C
-  current_temperature: number;
-  ambient_temperature: number;
-  device_status: 1; // 0 offline, 1 online ?
-  state: 1 | 0; // 0 off, 1 on ?
-  // TODO: figure out what these are doing - is this a difference between current and target heating state?
-  current_mode: 1; // ?
-  status: 1; // ?
-  firmware_version: string;
-  temperature_unit: "F" | "C"; // ?
-  auto: {
-    // ?
-    current_temperature: number;
-    state: 1;
+  OAQ: {
+    address: string; // ""
+    humidity: string; // ""
+    icon: string; // ""
+    mainairgrade: string; // ""
+    presenttime: string; // ""
+    temp: string; // ""
   };
-  night_light_setting: NightLightData;
+  schedules: ReadonlyArray<{
+    scheId: number;
+    dayOfWeek: ReadonlyArray<
+      "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun"
+    >;
+    cmdValue: number; // -1 indicates none?
+    startTime: string; // "0800" | "2100"
+    endTime: string; // "0800" | "2100"
+    lightOnOff: number; // 1 | 0 ?
+    specialMode: number; // 0 ?
+    movingMode: number; // 0 ?
+    enabled: string; // "Y" | "N" ?
+    devDtTimezn: string; // "-7.0"
+    devDstTimezn: string;
+  }>;
+  pm10Graph: ReadonlyArray<{
+    msrDt: string; // "202502040140"
+    place: string; // "in"
+    graphHighValue: string; // "5"
+    graphValue: string; // "2"
+  }>;
+  prodStatus: {
+    AICare: "";
+    humidification: "";
+    airVolume: Fan;
+    dustPollution: "1";
+    dustSensitivity: "2";
+    light: Light;
+    lightDetail: "";
+    pollenMode: "";
+    power: Power;
+    prodMode: Mode;
+    reservation: "";
+    specialModeIndex: "";
+    vocsGrade: "";
+    silent: "";
+    onTimer: "";
+    purityFanAction: "";
+    purityFanActionTime: "";
+  };
+  nextHeartService: "";
+  humidity: 0;
+  temperature: 0;
+  netStatus: false;
+  filterdeliveryList: [];
 }
 
-type DeviceData = OnlineDeviceData | { device_status: 0 };
-
-function isDeviceOffline(data: DeviceData): data is { device_status: 0 } {
-  return data.device_status === 0;
-}
-
-export class SmartEnviPlatformAccessory {
-  data: DeviceData = { device_status: 0 };
+export class CowayPlatformAccessory {
+  data: null | DeviceData = null;
 
   constructor(
-    private readonly platform: SmartEnviHomebridgePlatform,
-    private readonly accessory: PlatformAccessory<AccessoryContext>,
+    private readonly platform: CowayHomebridgePlatform,
+    private readonly accessory: PlatformAccessory<AccessoryContext>
   ) {
     this.accessory
       .getService(this.platform.Service.AccessoryInformation)!
-      .setCharacteristic(this.platform.Characteristic.Manufacturer, "eheat")
+      .setCharacteristic(this.platform.Characteristic.Manufacturer, "Coway")
       .setCharacteristic(
         this.platform.Characteristic.FirmwareRevision,
         // eslint-disable-next-line @typescript-eslint/no-var-requires
-        require("../package.json").version,
+        require("../package.json").version
       )
       .setCharacteristic(
         this.platform.Characteristic.Name,
-        this.accessory.context.device.name,
+        this.accessory.context.device.dvcNick
       )
       .setCharacteristic(
-        this.platform.Characteristic.SerialNumber,
-        this.accessory.context.device.serial_no,
+        this.platform.Characteristic.Model,
+        this.accessory.context.device.dvcModel
       );
 
     const logSet =
       (label: string, fn: (value: CharacteristicValue) => Promise<void>) =>
       (value: CharacteristicValue) => {
-        this.platform.log.info(label, value);
+        this.platform.log.debug(label, value);
         return fn(value);
       };
 
-    const thermostatService =
-      this.accessory.getService(this.platform.Service.Thermostat) ||
-      this.accessory.addService(this.platform.Service.Thermostat);
-    thermostatService
-      .getCharacteristic(
-        this.platform.Characteristic.CurrentHeatingCoolingState,
-      )
+    const airPurifierService =
+      this.accessory.getService(this.platform.Service.AirPurifier) ||
+      this.accessory.addService(this.platform.Service.AirPurifier);
+    airPurifierService
+      .getCharacteristic(this.platform.Characteristic.Name)
+      .setValue(this.accessory.context.device.dvcNick);
+    airPurifierService
+      .getCharacteristic(this.platform.Characteristic.Active)
       .onGet(() =>
-        this.guardedOnlineData().state === 1
-          ? this.platform.Characteristic.CurrentHeatingCoolingState.HEAT
-          : this.platform.Characteristic.CurrentHeatingCoolingState.OFF,
+        this.guardedOnlineData().prodStatus.power === Power.On
+          ? this.platform.Characteristic.Active.ACTIVE
+          : this.platform.Characteristic.Active.INACTIVE
+      )
+      .onSet(
+        logSet("setting power", async (value) =>
+          this.controlDevice([
+            {
+              funcId: FunctionId.Power,
+              cmdVal:
+                value === this.platform.Characteristic.Active.ACTIVE
+                  ? Power.On
+                  : Power.Off,
+            },
+          ])
+        )
       );
-    thermostatService
-      .getCharacteristic(this.platform.Characteristic.TargetHeatingCoolingState)
-      .setProps({
-        validValues: [
-          this.platform.Characteristic.TargetHeatingCoolingState.OFF,
-          this.platform.Characteristic.TargetHeatingCoolingState.HEAT,
-        ],
-      })
-      .onGet(() =>
-        this.guardedOnlineData().state === 1
-          ? this.platform.Characteristic.TargetHeatingCoolingState.HEAT
-          : this.platform.Characteristic.TargetHeatingCoolingState.OFF,
-      )
-      .onSet(async (value) => this.updateThermostat({ state: value as 0 | 1 }));
-    thermostatService
-      .getCharacteristic(this.platform.Characteristic.CurrentTemperature)
+    airPurifierService
+      .getCharacteristic(this.platform.Characteristic.CurrentAirPurifierState)
       .onGet(() => {
-        const data = this.guardedOnlineData();
-        if (data.temperature_unit === "F") {
-          return fToC(data.ambient_temperature);
-        } else {
-          return data.ambient_temperature;
+        const prodStatus = this.guardedOnlineData().prodStatus;
+        if (prodStatus.prodMode === Mode.Off) {
+          return this.platform.Characteristic.CurrentAirPurifierState.INACTIVE;
         }
+        if (prodStatus.airVolume === Fan.Off) {
+          return this.platform.Characteristic.CurrentAirPurifierState.IDLE;
+        }
+        return this.platform.Characteristic.CurrentAirPurifierState
+          .PURIFYING_AIR;
       });
-    thermostatService
-      .getCharacteristic(this.platform.Characteristic.TargetTemperature)
-      .setProps({
-        maxValue: 33,
-      })
+    airPurifierService
+      .getCharacteristic(this.platform.Characteristic.TargetAirPurifierState)
       .onGet(() => {
-        const data = this.guardedOnlineData();
-        if (data.temperature_unit === "F") {
-          return fToC(data.current_temperature);
-        } else {
-          return data.current_temperature;
+        switch (this.guardedOnlineData().prodStatus.prodMode) {
+          case Mode.Smart:
+          case Mode.Rapid: // max speed until AQI is good for more than 5 minutes, then smart
+          case Mode.Sleep:
+            return this.platform.Characteristic.TargetAirPurifierState.AUTO;
+          case Mode.Manual:
+            return this.platform.Characteristic.TargetAirPurifierState.MANUAL;
+          case Mode.Off:
+            return this.platform.Characteristic.TargetAirPurifierState.AUTO;
         }
       })
-      .onSet(async (value) => {
-        // if the unit changed on the device between now and the last poll, this will be wrong
-        // to minimize this edge case, pull status immediately (`await this.updateStatus`)
-        // this is an edge enough case that I don't think it's worth fixing
-        let temperature = value as number;
-        if (this.guardedOnlineData().temperature_unit === "F") {
-          temperature = cToF(temperature);
+      .onSet(
+        logSet("setting target state", async (value) =>
+          this.controlDevice([
+            {
+              funcId: FunctionId.Mode,
+              cmdVal:
+                value ===
+                this.platform.Characteristic.TargetAirPurifierState.AUTO
+                  ? Mode.Smart
+                  : Mode.Manual,
+            },
+          ])
+        )
+      );
+    airPurifierService
+      .getCharacteristic(this.platform.Characteristic.RotationSpeed)
+      .onGet(() => {
+        switch (this.guardedOnlineData().prodStatus.airVolume) {
+          case Fan.Low:
+            return 33;
+          case Fan.Medium:
+            return 66;
+          case Fan.High:
+            return 100;
+          case Fan.Off:
+            return 0;
+          default:
+            throw new Error(
+              `unknown fan ${this.guardedOnlineData().prodStatus.airVolume}`
+            );
         }
-        return this.updateThermostat({ temperature });
-      });
-    thermostatService
-      .getCharacteristic(this.platform.Characteristic.TemperatureDisplayUnits)
-      .onGet(() =>
-        this.guardedOnlineData().temperature_unit === "F"
-          ? this.platform.Characteristic.TemperatureDisplayUnits.FAHRENHEIT
-          : this.platform.Characteristic.TemperatureDisplayUnits.CELSIUS,
-      )
-      .onSet(async (value) =>
-        this.platform.updateUserSettings({
-          temperature_unit:
-            value ===
-            this.platform.Characteristic.TemperatureDisplayUnits.FAHRENHEIT
-              ? "F"
-              : "C",
-        }),
+      })
+      .onSet(
+        logSet("setting fan state", async (value) => {
+          if (typeof value !== "number") {
+            throw new Error(`unexpected value ${value}`);
+          }
+
+          let fan: Fan;
+          if (value > 66) {
+            fan = Fan.High;
+          } else if (value > 33) {
+            fan = Fan.Medium;
+          } else {
+            fan = Fan.Low;
+          }
+          return this.controlDevice([
+            {
+              funcId: FunctionId.Fan,
+              cmdVal: fan,
+            },
+          ]);
+        })
       );
 
-    const nightLightService =
-      this.accessory.getService(this.platform.Service.Lightbulb) ||
-      this.accessory.addService(this.platform.Service.Lightbulb);
-    nightLightService
-      .getCharacteristic(this.platform.Characteristic.Name)
-      .setValue("Night light");
-    nightLightService
-      .getCharacteristic(this.platform.Characteristic.On)
-      // TODO: need to test, this might need to be replaced with
-      // const data = this.guardedOnlineData();
-      // return data.night_light_setting.auto
-      //   ? data.night_light_setting.brightness > 0
-      //   : data.night_light_setting.on;
-      .onGet(() => !this.guardedOnlineData().night_light_setting.off)
-      .onSet(
-        logSet("setting night light on", async (value) =>
-          this.updateNightLightSettings({
-            on: value as boolean,
-            off: !value as boolean,
-            auto: false,
-          }),
-        ),
-      );
-    // TODO: all this needs testing still
-    //
-    // NOTE: both envi and apple don't actually allow setting the brightness
-    // component of the actual color, brightness is managed separately
-    //
-    // according to https://nrchkb.github.io/wiki/service/lightbulb/, homekit uses HSV
-    nightLightService
-      .getCharacteristic(this.platform.Characteristic.Brightness)
-      .onGet(() => this.guardedOnlineData().night_light_setting.brightness)
-      .onSet(
-        logSet("setting brightness", async (value) =>
-          // value between 0 and 100
-          this.updateNightLightSettings({ brightness: value as number }),
-        ),
-      );
-    nightLightService
-      .getCharacteristic(this.platform.Characteristic.Hue)
-      .onGet(() => this.hsvColor()[0])
-      .onSet(
-        logSet("setting hue", async (h) => {
-          // value between 0 and 360
-          const [, s, v] = this.hsvColor();
-          const [r, g, b] = convert.hsv.rgb([h as number, s, v]);
-          return this.updateNightLightSettings({ color: { r, g, b } });
-        }),
-      );
-    nightLightService
-      .getCharacteristic(this.platform.Characteristic.Saturation)
-      .onGet(() => this.hsvColor()[1])
-      .onSet(
-        logSet("setting saturation", async (s) => {
-          // value between 0 and 100
-          const [h, , v] = this.hsvColor();
-          const [r, g, b] = convert.hsv.rgb([h, s as number, v]);
-          return this.updateNightLightSettings({ color: { r, g, b } });
-        }),
-      );
+    const airQualityService =
+      this.accessory.getService(this.platform.Service.AirQualitySensor) ||
+      this.accessory.addService(this.platform.Service.AirQualitySensor);
+    airQualityService
+      .getCharacteristic(this.platform.Characteristic.AirQuality)
+      .onGet(() => {
+        const { inairquality: airQuality, dustpm25 } =
+          this.guardedOnlineData().IAQ;
+        switch (airQuality) {
+          case AirQuality.Excellent:
+            return this.platform.Characteristic.AirQuality.EXCELLENT;
+          case AirQuality.Good:
+            return this.platform.Characteristic.AirQuality.GOOD;
+          case AirQuality.Fair:
+            return this.platform.Characteristic.AirQuality.FAIR;
+          case AirQuality.Inferior:
+            return this.platform.Characteristic.AirQuality.INFERIOR;
+          default: {
+            // fall back to pm2.5
+            const pm25 = parseInt(dustpm25, 10);
+            if (pm25 >= 151) {
+              return this.platform.Characteristic.AirQuality.POOR;
+            }
+            if (pm25 >= 56) {
+              return this.platform.Characteristic.AirQuality.INFERIOR;
+            }
+            if (pm25 >= 36) {
+              return this.platform.Characteristic.AirQuality.FAIR;
+            }
+            if (pm25 >= 16) {
+              return this.platform.Characteristic.AirQuality.GOOD;
+            }
+            if (pm25 >= 0) {
+              return this.platform.Characteristic.AirQuality.EXCELLENT;
+            }
+
+            throw new Error(`unknown fan ${airQuality} ${dustpm25}`);
+          }
+        }
+      });
+    airQualityService
+      .getCharacteristic(this.platform.Characteristic.PM2_5Density)
+      .onGet(() => {
+        if (this.guardedOnlineData().IAQ.dustpm25 === "") {
+          throw new this.platform.api.hap.HapStatusError(
+            this.platform.api.hap.HAPStatus.RESOURCE_DOES_NOT_EXIST
+          );
+        }
+        return parseInt(this.guardedOnlineData().IAQ.dustpm25, 10);
+      });
+    airQualityService
+      .getCharacteristic(this.platform.Characteristic.PM10Density)
+      .onGet(() => {
+        if (this.guardedOnlineData().IAQ.dustpm10 === "") {
+          throw new this.platform.api.hap.HapStatusError(
+            this.platform.api.hap.HAPStatus.RESOURCE_DOES_NOT_EXIST
+          );
+        }
+        return parseInt(this.guardedOnlineData().IAQ.dustpm10, 10);
+      });
+
+    const filters = {
+      [0]: {
+        subtype: "PreFilter",
+        name: "Pre Filter",
+      },
+      [1]: {
+        subtype: "MainFilter",
+        name: "Main Filter",
+      },
+    };
+
+    for (const [filterIndex, { subtype, name }] of Object.entries(filters)) {
+      const filterService =
+        this.accessory.getServiceById(
+          this.platform.Service.FilterMaintenance,
+          subtype
+        ) ||
+        this.accessory.addService(
+          this.platform.Service.FilterMaintenance,
+          name,
+          subtype
+        );
+      filterService
+        .getCharacteristic(this.platform.Characteristic.Name)
+        .setValue(name);
+      // not localized, so we don't use this
+      // .onGet(
+      //   () => this.guardedOnlineData().filterList[filterIndex].filterName
+      // );
+      filterService
+        .getCharacteristic(this.platform.Characteristic.FilterChangeIndication)
+        .onGet(() =>
+          this.guardedOnlineData().filterList[filterIndex].filterPer < 20
+            ? this.platform.Characteristic.FilterChangeIndication.CHANGE_FILTER
+            : this.platform.Characteristic.FilterChangeIndication.FILTER_OK
+        );
+      filterService
+        .getCharacteristic(this.platform.Characteristic.FilterLifeLevel)
+        .onGet(
+          () => this.guardedOnlineData().filterList[filterIndex].filterPer
+        );
+    }
+
+    // const lightService =
+    //   this.accessory.getServiceById(this.platform.Service.Lightbulb, "main") ||
+    //   this.accessory.addService(
+    //     this.platform.Service.Lightbulb,
+    //     "Light",
+    //     "main"
+    //   );
+    // lightService
+    //   .getCharacteristic(this.platform.Characteristic.Name)
+    //   .setValue("Light");
+    // lightService
+    //   .getCharacteristic(this.platform.Characteristic.On)
+    //   .onGet(() => {
+    //     switch (this.guardedOnlineData().prodStatus.light) {
+    //       case Light.On:
+    //         return true;
+    //       case Light.AQIOff:
+    //         return true;
+    //       case Light.Off:
+    //         return false;
+    //     }
+    //   })
+    //   .onSet(
+    //     logSet("setting light", async (value) => {
+    //       this.controlDevice([
+    //         { funcId: FunctionId.Light, cmdVal: value ? Light.On : Light.Off },
+    //       ]);
+    //     })
+    //   );
+
+    // const aqiLightService =
+    //   this.accessory.getServiceById(this.platform.Service.Lightbulb, "aqi") ||
+    //   this.accessory.addService(
+    //     this.platform.Service.Lightbulb,
+    //     "AQI Light",
+    //     "aqi"
+    //   );
+    // aqiLightService
+    //   .getCharacteristic(this.platform.Characteristic.Name)
+    //   .setValue("AQI Light");
+    // aqiLightService
+    //   .getCharacteristic(this.platform.Characteristic.On)
+    //   .onGet(() => {
+    //     switch (this.guardedOnlineData().prodStatus.light) {
+    //       case Light.On:
+    //         return true;
+    //       case Light.AQIOff:
+    //         return false;
+    //       case Light.Off:
+    //         return false;
+    //     }
+    //   })
+    //   .onSet(
+    //     logSet("setting aqi light", async (value) => {
+    //       this.controlDevice([
+    //         {
+    //           funcId: FunctionId.Light,
+    //           cmdVal: value ? Light.On : Light.AQIOff,
+    //         },
+    //       ]);
+    //     })
+    //   );
 
     this.poll();
   }
 
-  private async updateThermostat(
-    body: { state: 1 | 0 } | { temperature: number },
-  ) {
-    this.platform.log.info("updating thermostat", body);
-    const response = await this.platform.fetch(
-      `https://app-apis.enviliving.com/apis/v1/device/update-temperature/${this.accessory.context.device.id}`,
-      {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      },
-    );
-    this.platform.log.info("update thermostat response", await response.json());
-    await this.updateStatus();
-  }
-
-  private async updateNightLightSettings(settings: Partial<NightLightData>) {
+  private async controlDevice(commands: ReadonlyArray<FunctionI<FunctionId>>) {
     const body = JSON.stringify({
-      ...this.guardedOnlineData().night_light_setting,
-      ...settings,
-    });
-    this.platform.log.debug("updating night light settings", body);
+      devId: this.accessory.context.device.barcode,
+      funcList: commands,
+      dvcTypeCd: "004",
+      isMultiControl: false,
+    } satisfies ControlData);
+    this.platform.log.debug("controlling device", body);
     await this.platform.fetch(
-      `https://app-apis.enviliving.com/apis/v1/device/night-light-setting/${this.accessory.context.device.id}`,
+      `https://iocareapi.iot.coway.com/api/v1/com/control-device`,
       {
-        method: "PATCH",
+        method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body,
-      },
+      }
     );
     await this.updateStatus();
   }
@@ -273,33 +496,44 @@ export class SmartEnviPlatformAccessory {
         this.platform.log.error(
           "update status error",
           err,
-          (err as Error).stack,
+          (err as Error).stack
         );
       })
       .then(() => setTimeout(this.poll.bind(this), 10 * 1000));
   }
 
   private async updateStatus() {
-    const { data } = await (
-      await this.platform.fetch(
-        `https://app-apis.enviliving.com/apis/v1/device/${this.accessory.context.device.id}`,
-      )
-    ).json();
+    const url = new URL(
+      "https://iocareapi.iot.coway.com/api/v1/air/devices/41102F9R2481600525/home"
+    );
+    // url.searchParams.append('admdongCd', 'US')
+    url.searchParams.append("barcode", this.accessory.context.device.barcode);
+    url.searchParams.append(
+      "dvcBrandCd",
+      this.accessory.context.device.dvcBrandCd
+    );
+    // url.searchParams.append('prodName', 'COLUMBIA')
+    // url.searchParams.append('zipCode', '')
+    // url.searchParams.append('resetDttm', '')
+    // url.searchParams.append('deviceType', '004')
+    url.searchParams.append("mqttDevice", "true"); // TODO: this could mean local control without network connection is possible
+    url.searchParams.append("orderNo", "undefined");
+    url.searchParams.append("membershipYn", "N");
+    // url.searchParams.append('selfYn', 'N')
+
+    const { data } = (await (
+      await this.platform.fetch(url)
+    ).json()) as Response<DeviceData>;
     this.platform.log.debug("updated status");
     this.data = data;
   }
 
-  private guardedOnlineData(): OnlineDeviceData {
-    if (isDeviceOffline(this.data)) {
+  private guardedOnlineData(): DeviceData {
+    if (this.data === null) {
       throw new this.platform.api.hap.HapStatusError(
-        this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+        this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
       );
     }
     return this.data;
-  }
-
-  private hsvColor(): [number, number, number] {
-    const { r, g, b } = this.guardedOnlineData().night_light_setting.color;
-    return convert.rgb.hsv([r, g, b]);
   }
 }

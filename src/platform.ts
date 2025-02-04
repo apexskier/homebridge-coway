@@ -7,12 +7,10 @@ import {
   Service,
   Characteristic,
 } from "homebridge";
+import { parse } from "node-html-parser";
 
 import { PLATFORM_NAME, PLUGIN_NAME } from "./settings";
-import {
-  AccessoryContext,
-  SmartEnviPlatformAccessory,
-} from "./platformAccessory";
+import { AccessoryContext, CowayPlatformAccessory } from "./platformAccessory";
 import { Config } from "./config";
 
 /**
@@ -20,7 +18,7 @@ import { Config } from "./config";
  * This class is the main constructor for your plugin, this is where you should
  * parse the user config and discover/register accessories with Homebridge.
  */
-export class SmartEnviHomebridgePlatform implements DynamicPlatformPlugin {
+export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service = this.api.hap.Service;
   public readonly Characteristic: typeof Characteristic =
     this.api.hap.Characteristic;
@@ -30,7 +28,7 @@ export class SmartEnviHomebridgePlatform implements DynamicPlatformPlugin {
   constructor(
     public readonly log: Logger,
     public readonly config: PlatformConfig & Partial<Config>,
-    public readonly api: API,
+    public readonly api: API
   ) {
     this.log.debug("Finished initializing platform:", this.config);
 
@@ -71,44 +69,48 @@ export class SmartEnviHomebridgePlatform implements DynamicPlatformPlugin {
 
   async discoverDevices() {
     const listResponse = await this.fetch(
-      "https://app-apis.enviliving.com/apis/v1/device/list",
+      "https://iocareapi.iot.coway.com/api/v1/com/user-devices?pageIndex=0&pageSize=100"
     );
-    const { data: devices } = (await listResponse.json()) as {
-      data: ReadonlyArray<{
-        id: number;
-        ambient_temperature: number; // F
-        current_mode: number;
-        current_temperature: number; // F - target
-        device_status: number;
-        group_id: string;
-        group_name: string;
-        location_name: string;
-        name: string;
-        serial_no: string;
-        state: number;
-        status: number;
-        temperature_unit: "F" | "C";
-        user_id: number;
-      }>;
+    const { data } = (await listResponse.json()) as {
+      data: {
+        deviceInfos: ReadonlyArray<{
+          barcode: string;
+          dvcNick: string;
+          dvcModel: string;
+          dvcBrandCd: string;
+        }>;
+        first: boolean;
+        last: boolean;
+        numberOfElements: number;
+        reqPageIndex: number;
+        reqPageSize: number;
+        totalElements: number;
+        totalPages: number;
+      };
     };
+    if (data.totalPages !== 1) {
+      this.log.warn("more than one page of devices");
+    }
 
-    for (const device of devices) {
-      const deviceEndpoint = device.serial_no;
+    for (const device of data.deviceInfos) {
+      const deviceId = device.barcode;
       const existingAccessory = this.accessories.find(
-        (accessory) =>
-          accessory.UUID === this.api.hap.uuid.generate(deviceEndpoint),
+        (accessory) => accessory.UUID === this.api.hap.uuid.generate(deviceId)
       );
       if (existingAccessory) {
-        this.log.info("Restoring existing accessory from cache:", device.name);
-        new SmartEnviPlatformAccessory(this, existingAccessory);
+        this.log.info(
+          "Restoring existing accessory from cache:",
+          device.dvcNick
+        );
+        new CowayPlatformAccessory(this, existingAccessory);
       } else {
-        this.log.info("Adding new accessory:", device.name);
+        this.log.info("Adding new accessory:", device.dvcNick);
         const accessory = new this.api.platformAccessory<AccessoryContext>(
-          device.name,
-          this.api.hap.uuid.generate(deviceEndpoint),
+          device.dvcNick,
+          this.api.hap.uuid.generate(deviceId)
         );
         (accessory.context as AccessoryContext).device = device;
-        new SmartEnviPlatformAccessory(this, accessory);
+        new CowayPlatformAccessory(this, accessory);
         this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [
           accessory,
         ]);
@@ -119,37 +121,122 @@ export class SmartEnviHomebridgePlatform implements DynamicPlatformPlugin {
   async authorize() {
     const config = this.config as unknown as Config;
 
-    const loginRequest = new FormData();
-    loginRequest.append("username", config.username);
-    loginRequest.append("password", config.password);
-    loginRequest.append("login_type", `1`); // 1=email?
-    loginRequest.append("device_type", "ios");
-    loginRequest.append(
-      "device_id",
-      this.api.hap.uuid.generate(Math.random().toString()),
+    const openIDURL = new URL(
+      "https://id.coway.com/auth/realms/cw-account/protocol/openid-connect/auth"
     );
+    openIDURL.searchParams.append("auth_type", "0");
+    openIDURL.searchParams.append("response_type", "code");
+    openIDURL.searchParams.append("client_id", "cwid-prd-iocare-20240327");
+    openIDURL.searchParams.append("ui_locales", "en-US");
+    openIDURL.searchParams.append("dvc_cntry_id", "US");
+    // openIDURL.searchParams.append(
+    //   "redirect_uri",
+    //   "https://iocare-redirect.iot.coway.com/redirect_bridge.html"
+    // );
+
+    const openIDInitResponse = await fetch(
+      openIDURL.toString() +
+        `&redirect_uri=https://iocare-redirect.iot.coway.com/redirect_bridge.html`,
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 10_3_1 like Mac OS X) AppleWebKit/603.1.30 (KHTML, like Gecko) Version/10.0 Mobile/14E304 Safari/602.1 app",
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+        },
+      }
+    );
+    const body = await openIDInitResponse.text();
+    const htmlRoot = parse(body);
+    const loginForm = htmlRoot.querySelector("#kc-form-login");
+    if (!loginForm) {
+      this.log.error("missing login form", body);
+      throw new this.api.hap.HapStatusError(
+        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
+      );
+    }
+    const loginUrl = loginForm.getAttribute("action");
+    if (!loginUrl) {
+      this.log.error("missing login url", body);
+      throw new this.api.hap.HapStatusError(
+        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
+      );
+    }
+    const loginMethod = loginForm.getAttribute("method");
+    const openIDCookies = (
+      openIDInitResponse.headers as unknown as { getSetCookie(): string[] }
+    )
+      .getSetCookie()
+      .map((cookieStr) => cookieStr.split(";")[0])
+      .join("; ");
+
+    const loginRequestBody = new URLSearchParams();
+    loginRequestBody.append("clientName", "IOCARE");
+    loginRequestBody.append("termAgreementStatus", "");
+    loginRequestBody.append("idp", "");
+    loginRequestBody.append("username", config.username);
+    loginRequestBody.append("password", config.password);
+    loginRequestBody.append("rememberMe", "on");
+
     this.authToken = "";
-    const loginResponse = await this.fetch(
-      "https://app-apis.enviliving.com/apis/v1/auth/login",
+    // need to use search params for proper encoding for some reason
+    const loginRequestBodyRaw = loginRequestBody.toString();
+    const loginResponse = await fetch(loginUrl, {
+      method: loginMethod,
+      body: loginRequestBodyRaw,
+      redirect: "manual",
+      headers: {
+        Cookie: openIDCookies ?? "",
+        "Content-Type": "application/x-www-form-urlencoded",
+
+        "User-Agent":
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 10_3_1 like Mac OS X) AppleWebKit/603.1.30 (KHTML, like Gecko) Version/10.0 Mobile/14E304 Safari/602.1 app",
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+    });
+
+    if (loginResponse.status !== 302) {
+      this.log.error(
+        "authenticate didn't redirect",
+        await loginResponse.text()
+      );
+      throw new this.api.hap.HapStatusError(
+        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
+      );
+    }
+    const rawLocation = loginResponse.headers.get("location");
+    if (!rawLocation) {
+      this.log.error("missing location header", await loginResponse.text());
+      throw new this.api.hap.HapStatusError(
+        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
+      );
+    }
+
+    const location = new URL(rawLocation);
+
+    const tokenResponse = await this.fetch(
+      "https://iocareapi.iot.coway.com/api/v1/com/token",
       {
         method: "POST",
+        body: JSON.stringify({
+          authCode: location.searchParams.get("code"),
+          redirectUrl: location.href.split("?")[0],
+        }),
         headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
+          "content-type": "application/json",
         },
-        body: Array.from(
-          loginRequest as unknown as ReadonlyArray<[string, string]>,
-        )
-          .map(
-            ([name, value]) =>
-              `${name}=${encodeURIComponent(value).split("*").join("%2A")}`,
-          )
-          .join("&"),
-      },
+      }
     );
+
     const {
-      data: { token: authToken },
-    } = (await loginResponse.json()) as { data: { token: string } };
-    this.authToken = authToken;
+      data: { accessToken, refreshToken },
+    } = (await tokenResponse.json()) as {
+      data: { accessToken: string; refreshToken };
+    };
+    this.authToken = accessToken;
   }
 
   async fetch(input: RequestInfo | URL, init?: RequestInit) {
@@ -167,7 +254,7 @@ export class SmartEnviHomebridgePlatform implements DynamicPlatformPlugin {
     } catch (error) {
       this.log.error("failed to fetch", error);
       throw new this.api.hap.HapStatusError(
-        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
       );
     }
 
@@ -177,7 +264,7 @@ export class SmartEnviHomebridgePlatform implements DynamicPlatformPlugin {
         `auth token expired, reauthenticating and retrying (${
           init?.method ?? "GET"
         } ${input.toString()})`,
-        await response.text(),
+        await response.text()
       );
       await this.authorize();
       return this.fetch(input, init);
@@ -186,21 +273,21 @@ export class SmartEnviHomebridgePlatform implements DynamicPlatformPlugin {
     if (response.status === 401) {
       this.log.warn("401 response", await response.text());
       throw new this.api.hap.HapStatusError(
-        this.api.hap.HAPStatus.INSUFFICIENT_AUTHORIZATION,
+        this.api.hap.HAPStatus.INSUFFICIENT_AUTHORIZATION
       );
     }
 
     if (!response.ok) {
       this.log.warn("non-ok response", await response.text());
       throw new this.api.hap.HapStatusError(
-        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
       );
     }
 
     if (response.status !== 200) {
       this.log.warn("non-200 response", await response.text());
       throw new this.api.hap.HapStatusError(
-        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
       );
     }
 
@@ -222,7 +309,7 @@ export class SmartEnviHomebridgePlatform implements DynamicPlatformPlugin {
         body: Array.from(request as unknown as ReadonlyArray<[string, string]>)
           .map(([name, value]) => `${name}=${value}`)
           .join("&"),
-      },
+      }
     );
   }
 }

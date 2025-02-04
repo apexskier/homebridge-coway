@@ -1,5 +1,13 @@
+Link plugin globally to get local homebridge to pick it up.
+
 ```
-yarn build && DEBUG=*apexskier* homebridge -D -I
+npm run link
+```
+
+Run homebridge locally with your local plugin and logs.
+
+```
+npm run build && DEBUG=*apexskier* homebridge -D -I
 ```
 
 - `-D`: debug mode
