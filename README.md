@@ -14,15 +14,15 @@ Outdoor air quality is pulled from the AirNow API through Coway's API.
 
 These features appear to be supported by the Coway API and Homebridge, but aren't populated for the 250S model.
 
-* Humidity
-* Temperature
-* VOC density
+- Humidity
+- Temperature
+- VOC density
 
 I've intentionally not implemented a few features since they clutter the Home app or don't make sense.
 
-* Light (switching between all on, AQI off, and all off)
-* Outdoor AQI (this pulls from AirNow, a dedicated accessory would be better to split rooms, and be more efficient)
+- Light (switching between all on, AQI off, and all off)
+- Outdoor AQI (this pulls from AirNow, a dedicated accessory would be better to split rooms, and be more efficient)
 
 And a few things are implemented but not really working
 
-* Filter Maintenance status
+- Filter Maintenance status

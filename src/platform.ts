@@ -28,7 +28,7 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
   constructor(
     public readonly log: Logger,
     public readonly config: PlatformConfig & Partial<Config>,
-    public readonly api: API
+    public readonly api: API,
   ) {
     this.log.debug("Finished initializing platform:", this.config);
 
@@ -69,7 +69,7 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
 
   async discoverDevices() {
     const listResponse = await this.fetch(
-      "https://iocareapi.iot.coway.com/api/v1/com/user-devices?pageIndex=0&pageSize=100"
+      "https://iocareapi.iot.coway.com/api/v1/com/user-devices?pageIndex=0&pageSize=100",
     );
     const { data } = (await listResponse.json()) as {
       data: {
@@ -95,19 +95,19 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
     for (const device of data.deviceInfos) {
       const deviceId = device.barcode;
       const existingAccessory = this.accessories.find(
-        (accessory) => accessory.UUID === this.api.hap.uuid.generate(deviceId)
+        (accessory) => accessory.UUID === this.api.hap.uuid.generate(deviceId),
       );
       if (existingAccessory) {
         this.log.info(
           "Restoring existing accessory from cache:",
-          device.dvcNick
+          device.dvcNick,
         );
         new CowayPlatformAccessory(this, existingAccessory);
       } else {
         this.log.info("Adding new accessory:", device.dvcNick);
         const accessory = new this.api.platformAccessory<AccessoryContext>(
           device.dvcNick,
-          this.api.hap.uuid.generate(deviceId)
+          this.api.hap.uuid.generate(deviceId),
         );
         (accessory.context as AccessoryContext).device = device;
         new CowayPlatformAccessory(this, accessory);
@@ -122,7 +122,7 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
     const config = this.config as unknown as Config;
 
     const openIDURL = new URL(
-      "https://id.coway.com/auth/realms/cw-account/protocol/openid-connect/auth"
+      "https://id.coway.com/auth/realms/cw-account/protocol/openid-connect/auth",
     );
     openIDURL.searchParams.append("auth_type", "0");
     openIDURL.searchParams.append("response_type", "code");
@@ -145,7 +145,7 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
           "Accept-Language": "en-US,en;q=0.9",
         },
-      }
+      },
     );
     const body = await openIDInitResponse.text();
     const htmlRoot = parse(body);
@@ -153,14 +153,14 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
     if (!loginForm) {
       this.log.error("missing login form", body);
       throw new this.api.hap.HapStatusError(
-        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
+        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
       );
     }
     const loginUrl = loginForm.getAttribute("action");
     if (!loginUrl) {
       this.log.error("missing login url", body);
       throw new this.api.hap.HapStatusError(
-        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
+        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
       );
     }
     const loginMethod = loginForm.getAttribute("method");
@@ -201,17 +201,17 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
     if (loginResponse.status !== 302) {
       this.log.error(
         "authenticate didn't redirect",
-        await loginResponse.text()
+        await loginResponse.text(),
       );
       throw new this.api.hap.HapStatusError(
-        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
+        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
       );
     }
     const rawLocation = loginResponse.headers.get("location");
     if (!rawLocation) {
       this.log.error("missing location header", await loginResponse.text());
       throw new this.api.hap.HapStatusError(
-        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
+        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
       );
     }
 
@@ -228,7 +228,7 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
         headers: {
           "content-type": "application/json",
         },
-      }
+      },
     );
 
     const {
@@ -254,7 +254,7 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
     } catch (error) {
       this.log.error("failed to fetch", error);
       throw new this.api.hap.HapStatusError(
-        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
+        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
       );
     }
 
@@ -264,7 +264,7 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
         `auth token expired, reauthenticating and retrying (${
           init?.method ?? "GET"
         } ${input.toString()})`,
-        await response.text()
+        await response.text(),
       );
       await this.authorize();
       return this.fetch(input, init);
@@ -273,21 +273,21 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
     if (response.status === 401) {
       this.log.warn("401 response", await response.text());
       throw new this.api.hap.HapStatusError(
-        this.api.hap.HAPStatus.INSUFFICIENT_AUTHORIZATION
+        this.api.hap.HAPStatus.INSUFFICIENT_AUTHORIZATION,
       );
     }
 
     if (!response.ok) {
       this.log.warn("non-ok response", await response.text());
       throw new this.api.hap.HapStatusError(
-        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
+        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
       );
     }
 
     if (response.status !== 200) {
       this.log.warn("non-200 response", await response.text());
       throw new this.api.hap.HapStatusError(
-        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
+        this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
       );
     }
 

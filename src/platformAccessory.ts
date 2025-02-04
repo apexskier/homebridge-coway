@@ -164,7 +164,7 @@ export class CowayPlatformAccessory {
 
   constructor(
     private readonly platform: CowayHomebridgePlatform,
-    private readonly accessory: PlatformAccessory<AccessoryContext>
+    private readonly accessory: PlatformAccessory<AccessoryContext>,
   ) {
     this.accessory
       .getService(this.platform.Service.AccessoryInformation)!
@@ -172,15 +172,15 @@ export class CowayPlatformAccessory {
       .setCharacteristic(
         this.platform.Characteristic.FirmwareRevision,
         // eslint-disable-next-line @typescript-eslint/no-var-requires
-        require("../package.json").version
+        require("../package.json").version,
       )
       .setCharacteristic(
         this.platform.Characteristic.Name,
-        this.accessory.context.device.dvcNick
+        this.accessory.context.device.dvcNick,
       )
       .setCharacteristic(
         this.platform.Characteristic.Model,
-        this.accessory.context.device.dvcModel
+        this.accessory.context.device.dvcModel,
       );
 
     const logSet =
@@ -201,7 +201,7 @@ export class CowayPlatformAccessory {
       .onGet(() =>
         this.guardedOnlineData().prodStatus.power === Power.On
           ? this.platform.Characteristic.Active.ACTIVE
-          : this.platform.Characteristic.Active.INACTIVE
+          : this.platform.Characteristic.Active.INACTIVE,
       )
       .onSet(
         logSet("setting power", async (value) =>
@@ -213,8 +213,8 @@ export class CowayPlatformAccessory {
                   ? Power.On
                   : Power.Off,
             },
-          ])
-        )
+          ]),
+        ),
       );
     airPurifierService
       .getCharacteristic(this.platform.Characteristic.CurrentAirPurifierState)
@@ -254,8 +254,8 @@ export class CowayPlatformAccessory {
                   ? Mode.Smart
                   : Mode.Manual,
             },
-          ])
-        )
+          ]),
+        ),
       );
     airPurifierService
       .getCharacteristic(this.platform.Characteristic.RotationSpeed)
@@ -271,7 +271,7 @@ export class CowayPlatformAccessory {
             return 0;
           default:
             throw new Error(
-              `unknown fan ${this.guardedOnlineData().prodStatus.airVolume}`
+              `unknown fan ${this.guardedOnlineData().prodStatus.airVolume}`,
             );
         }
       })
@@ -295,18 +295,18 @@ export class CowayPlatformAccessory {
               cmdVal: fan,
             },
           ]);
-        })
+        }),
       );
 
     const indoorAirQualityService =
       this.accessory.getServiceById(
         this.platform.Service.AirQualitySensor,
-        "indoor"
+        "indoor",
       ) ||
       this.accessory.addService(
         this.platform.Service.AirQualitySensor,
         "Indoor Air Quality",
-        "indoor"
+        "indoor",
       );
     indoorAirQualityService
       .getCharacteristic(this.platform.Characteristic.Name)
@@ -353,7 +353,7 @@ export class CowayPlatformAccessory {
       .onGet(() => {
         if (this.guardedOnlineData().IAQ.dustpm25 === "") {
           throw new this.platform.api.hap.HapStatusError(
-            this.platform.api.hap.HAPStatus.RESOURCE_DOES_NOT_EXIST
+            this.platform.api.hap.HAPStatus.RESOURCE_DOES_NOT_EXIST,
           );
         }
         return parseInt(this.guardedOnlineData().IAQ.dustpm25, 10);
@@ -363,7 +363,7 @@ export class CowayPlatformAccessory {
       .onGet(() => {
         if (this.guardedOnlineData().IAQ.dustpm10 === "") {
           throw new this.platform.api.hap.HapStatusError(
-            this.platform.api.hap.HAPStatus.RESOURCE_DOES_NOT_EXIST
+            this.platform.api.hap.HAPStatus.RESOURCE_DOES_NOT_EXIST,
           );
         }
         return parseInt(this.guardedOnlineData().IAQ.dustpm10, 10);
@@ -384,12 +384,12 @@ export class CowayPlatformAccessory {
       const filterService =
         this.accessory.getServiceById(
           this.platform.Service.FilterMaintenance,
-          subtype
+          subtype,
         ) ||
         this.accessory.addService(
           this.platform.Service.FilterMaintenance,
           name,
-          subtype
+          subtype,
         );
       filterService
         .getCharacteristic(this.platform.Characteristic.Name)
@@ -403,12 +403,12 @@ export class CowayPlatformAccessory {
         .onGet(() =>
           this.guardedOnlineData().filterList[filterIndex].filterPer < 20
             ? this.platform.Characteristic.FilterChangeIndication.CHANGE_FILTER
-            : this.platform.Characteristic.FilterChangeIndication.FILTER_OK
+            : this.platform.Characteristic.FilterChangeIndication.FILTER_OK,
         );
       filterService
         .getCharacteristic(this.platform.Characteristic.FilterLifeLevel)
         .onGet(
-          () => this.guardedOnlineData().filterList[filterIndex].filterPer
+          () => this.guardedOnlineData().filterList[filterIndex].filterPer,
         );
     }
 
@@ -431,7 +431,7 @@ export class CowayPlatformAccessory {
           "Content-Type": "application/json",
         },
         body,
-      }
+      },
     );
     await this.updateStatus();
   }
@@ -442,7 +442,7 @@ export class CowayPlatformAccessory {
         this.platform.log.error(
           "update status error",
           err,
-          (err as Error).stack
+          (err as Error).stack,
         );
       })
       .then(() => setTimeout(this.poll.bind(this), 10 * 1000));
@@ -450,13 +450,13 @@ export class CowayPlatformAccessory {
 
   private async updateStatus() {
     const url = new URL(
-      "https://iocareapi.iot.coway.com/api/v1/air/devices/41102F9R2481600525/home"
+      "https://iocareapi.iot.coway.com/api/v1/air/devices/41102F9R2481600525/home",
     );
     // url.searchParams.append('admdongCd', 'US')
     url.searchParams.append("barcode", this.accessory.context.device.barcode);
     url.searchParams.append(
       "dvcBrandCd",
-      this.accessory.context.device.dvcBrandCd
+      this.accessory.context.device.dvcBrandCd,
     );
     // url.searchParams.append('prodName', 'COLUMBIA')
     // url.searchParams.append('zipCode', '')
@@ -477,7 +477,7 @@ export class CowayPlatformAccessory {
   private guardedOnlineData(): DeviceData {
     if (this.data === null) {
       throw new this.platform.api.hap.HapStatusError(
-        this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
+        this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
       );
     }
     return this.data;
