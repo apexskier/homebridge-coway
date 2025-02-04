@@ -5,9 +5,11 @@ import { CowayHomebridgePlatform as CowayHomebridgePlatform } from "./platform";
 export interface AccessoryContext {
   device: {
     barcode: string;
+    dvcBrandCd: string;
     dvcModel: string;
     dvcNick: string;
-    dvcBrandCd: string;
+    dvcTypeCd: string;
+    prodName: string;
   };
 }
 
@@ -415,11 +417,62 @@ export class CowayPlatformAccessory {
     this.poll();
   }
 
+  // ???
+  private async comDevice() {
+    const url = new URL(
+      `https://iocareapi.iot.coway.com/api/v1/com/devices/${this.accessory.context.device.barcode}/control`,
+    );
+    url.searchParams.append("devId", this.accessory.context.device.barcode);
+    url.searchParams.append("mqttDevice", "true");
+    url.searchParams.append(
+      "dvcBrandCd",
+      this.accessory.context.device.dvcBrandCd,
+    );
+    url.searchParams.append(
+      "dvcTypeCd",
+      this.accessory.context.device.dvcTypeCd,
+    );
+    url.searchParams.append("prodName", this.accessory.context.device.prodName);
+
+    const response = await this.platform.fetch(url);
+
+    const body = (await response.json()) as Response<{
+      controlStatus: {
+        "0001": string; // "1"
+        "0002": string; // "1"
+        "0003": string; // "1"
+        "0007": string; // "2"
+        "0008": string; // "0"
+        "000A": string; // "2"
+        "000E": string; // "1"
+        "0012": string; // "0"
+        "0018": string; // "0"
+        "0019": string; // "0"
+        "0021": string; // "0"
+        "0024": string; // "0"
+        "0025": string; // "0"
+        "002F": string; // "1"
+        offTimer: string; // "0"
+        originDt: string; // "1738704280790"
+        serial: string; // "41102F9R2481600525"
+      };
+      lastBubbleSterTime: string; // ""
+      lastDrainageTime: string; // ""
+      lastSterTime: string; // ""
+      errorCode: string; // ""
+      errorYn: boolean; // false
+      netStatus: boolean; // true
+      waterLevel: number; // 0
+    }>;
+
+    this.platform.log.debug("com device", body);
+  }
+
   private async controlDevice(commands: ReadonlyArray<FunctionI<FunctionId>>) {
     const body = JSON.stringify({
       devId: this.accessory.context.device.barcode,
       funcList: commands,
-      dvcTypeCd: "004",
+      dvcTypeCd: this.accessory.context.device.dvcTypeCd,
       isMultiControl: false,
     } satisfies ControlData);
     this.platform.log.debug("controlling device", body);
@@ -450,22 +503,22 @@ export class CowayPlatformAccessory {
 
   private async updateStatus() {
     const url = new URL(
-      "https://iocareapi.iot.coway.com/api/v1/air/devices/41102F9R2481600525/home",
+      `https://iocareapi.iot.coway.com/api/v1/air/devices/${this.accessory.context.device.barcode}/home`,
     );
-    // url.searchParams.append('admdongCd', 'US')
+    // url.searchParams.append('admdongCd', 'US');
     url.searchParams.append("barcode", this.accessory.context.device.barcode);
     url.searchParams.append(
       "dvcBrandCd",
       this.accessory.context.device.dvcBrandCd,
     );
-    // url.searchParams.append('prodName', 'COLUMBIA')
-    // url.searchParams.append('zipCode', '')
-    // url.searchParams.append('resetDttm', '')
-    // url.searchParams.append('deviceType', '004')
+    // url.searchParams.append('prodName', this.accessory.context.device.prodName);
+    // url.searchParams.append('zipCode', '');
+    // url.searchParams.append('resetDttm', '');
+    // url.searchParams.append('deviceType', this.accessory.context.device.dvcTypeCd);
     url.searchParams.append("mqttDevice", "true"); // TODO: this could mean local control without network connection is possible
     url.searchParams.append("orderNo", "undefined");
     url.searchParams.append("membershipYn", "N");
-    // url.searchParams.append('selfYn', 'N')
+    // url.searchParams.append('selfYn', 'N');
 
     const { data } = (await (
       await this.platform.fetch(url)

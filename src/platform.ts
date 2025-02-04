@@ -75,9 +75,11 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
       data: {
         deviceInfos: ReadonlyArray<{
           barcode: string;
-          dvcNick: string;
-          dvcModel: string;
           dvcBrandCd: string;
+          dvcModel: string;
+          dvcNick: string;
+          dvcTypeCd: string;
+          prodName: string;
         }>;
         first: boolean;
         last: boolean;
