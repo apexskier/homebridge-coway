@@ -1,5 +1,4 @@
 import { CharacteristicValue, PlatformAccessory } from "homebridge";
-import convert from "color-convert";
 
 import { CowayHomebridgePlatform as CowayHomebridgePlatform } from "./platform";
 
@@ -299,10 +298,20 @@ export class CowayPlatformAccessory {
         })
       );
 
-    const airQualityService =
-      this.accessory.getService(this.platform.Service.AirQualitySensor) ||
-      this.accessory.addService(this.platform.Service.AirQualitySensor);
-    airQualityService
+    const indoorAirQualityService =
+      this.accessory.getServiceById(
+        this.platform.Service.AirQualitySensor,
+        "indoor"
+      ) ||
+      this.accessory.addService(
+        this.platform.Service.AirQualitySensor,
+        "Indoor Air Quality",
+        "indoor"
+      );
+    indoorAirQualityService
+      .getCharacteristic(this.platform.Characteristic.Name)
+      .setValue("Indoor Air Quality");
+    indoorAirQualityService
       .getCharacteristic(this.platform.Characteristic.AirQuality)
       .onGet(() => {
         const { inairquality: airQuality, dustpm25 } =
@@ -339,7 +348,7 @@ export class CowayPlatformAccessory {
           }
         }
       });
-    airQualityService
+    indoorAirQualityService
       .getCharacteristic(this.platform.Characteristic.PM2_5Density)
       .onGet(() => {
         if (this.guardedOnlineData().IAQ.dustpm25 === "") {
@@ -349,7 +358,7 @@ export class CowayPlatformAccessory {
         }
         return parseInt(this.guardedOnlineData().IAQ.dustpm25, 10);
       });
-    airQualityService
+    indoorAirQualityService
       .getCharacteristic(this.platform.Characteristic.PM10Density)
       .onGet(() => {
         if (this.guardedOnlineData().IAQ.dustpm10 === "") {
@@ -402,69 +411,6 @@ export class CowayPlatformAccessory {
           () => this.guardedOnlineData().filterList[filterIndex].filterPer
         );
     }
-
-    // const lightService =
-    //   this.accessory.getServiceById(this.platform.Service.Lightbulb, "main") ||
-    //   this.accessory.addService(
-    //     this.platform.Service.Lightbulb,
-    //     "Light",
-    //     "main"
-    //   );
-    // lightService
-    //   .getCharacteristic(this.platform.Characteristic.Name)
-    //   .setValue("Light");
-    // lightService
-    //   .getCharacteristic(this.platform.Characteristic.On)
-    //   .onGet(() => {
-    //     switch (this.guardedOnlineData().prodStatus.light) {
-    //       case Light.On:
-    //         return true;
-    //       case Light.AQIOff:
-    //         return true;
-    //       case Light.Off:
-    //         return false;
-    //     }
-    //   })
-    //   .onSet(
-    //     logSet("setting light", async (value) => {
-    //       this.controlDevice([
-    //         { funcId: FunctionId.Light, cmdVal: value ? Light.On : Light.Off },
-    //       ]);
-    //     })
-    //   );
-
-    // const aqiLightService =
-    //   this.accessory.getServiceById(this.platform.Service.Lightbulb, "aqi") ||
-    //   this.accessory.addService(
-    //     this.platform.Service.Lightbulb,
-    //     "AQI Light",
-    //     "aqi"
-    //   );
-    // aqiLightService
-    //   .getCharacteristic(this.platform.Characteristic.Name)
-    //   .setValue("AQI Light");
-    // aqiLightService
-    //   .getCharacteristic(this.platform.Characteristic.On)
-    //   .onGet(() => {
-    //     switch (this.guardedOnlineData().prodStatus.light) {
-    //       case Light.On:
-    //         return true;
-    //       case Light.AQIOff:
-    //         return false;
-    //       case Light.Off:
-    //         return false;
-    //     }
-    //   })
-    //   .onSet(
-    //     logSet("setting aqi light", async (value) => {
-    //       this.controlDevice([
-    //         {
-    //           funcId: FunctionId.Light,
-    //           cmdVal: value ? Light.On : Light.AQIOff,
-    //         },
-    //       ]);
-    //     })
-    //   );
 
     this.poll();
   }

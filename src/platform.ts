@@ -293,23 +293,4 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
 
     return response;
   }
-
-  public async updateUserSettings(data: { temperature_unit: "F" | "C" }) {
-    const request = new FormData();
-    for (const key in data) {
-      request.append(key, data[key]);
-    }
-    await this.fetch(
-      "https://app-apis.enviliving.com/apis/v1/user-settings/update",
-      {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: Array.from(request as unknown as ReadonlyArray<[string, string]>)
-          .map(([name, value]) => `${name}=${value}`)
-          .join("&"),
-      }
-    );
-  }
 }
