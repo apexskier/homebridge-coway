@@ -65,7 +65,8 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
     this.accessories.push(accessory);
   }
 
-  authToken: string | null = null;
+  accessToken: string | null = null;
+  refreshToken: string | null = null;
 
   async discoverDevices() {
     const listResponse = await this.fetch(
@@ -181,7 +182,7 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
     loginRequestBody.append("password", config.password);
     loginRequestBody.append("rememberMe", "on");
 
-    this.authToken = "";
+    this.accessToken = "";
     // need to use search params for proper encoding for some reason
     const loginRequestBodyRaw = loginRequestBody.toString();
     const loginResponse = await fetch(loginUrl, {
@@ -235,11 +236,38 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
 
     // TODO: refresh token
     const {
-      data: { accessToken },
+      data: { accessToken, refreshToken },
     } = (await tokenResponse.json()) as {
       data: { accessToken: string; refreshToken: string };
     };
-    this.authToken = accessToken;
+    this.accessToken = accessToken;
+    this.refreshToken = refreshToken;
+  }
+
+  async reauthorize() {
+    const tokenResponse = await fetch(
+      "https://iocareapi.iot.coway.com/api/v1/com/refresh-token",
+      {
+        method: "POST",
+        body: JSON.stringify({ refreshToken: this.refreshToken }),
+        headers: {
+          "content-type": "application/json",
+        },
+      },
+    );
+    if (tokenResponse.status !== 200) {
+      throw new this.api.hap.HapStatusError(
+        this.api.hap.HAPStatus.INSUFFICIENT_AUTHORIZATION,
+      );
+    }
+
+    const {
+      data: { accessToken, refreshToken },
+    } = (await tokenResponse.json()) as {
+      data: { accessToken: string; refreshToken: string };
+    };
+    this.accessToken = accessToken;
+    this.refreshToken = refreshToken;
   }
 
   async fetch(input: RequestInfo | URL, init?: RequestInit) {
@@ -249,8 +277,8 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
         ...init,
         headers: {
           ...init?.headers,
-          ...(this.authToken
-            ? { Authorization: "Bearer " + this.authToken }
+          ...(this.accessToken
+            ? { Authorization: "Bearer " + this.accessToken }
             : {}),
         },
       });
@@ -261,23 +289,16 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
       );
     }
 
-    if (response.status === 403) {
-      this.authToken = "";
+    if (response.status === 401) {
+      this.accessToken = "";
       this.log.warn(
         `auth token expired, reauthenticating and retrying (${
           init?.method ?? "GET"
         } ${input.toString()})`,
         await response.text(),
       );
-      await this.authorize();
+      await this.reauthorize();
       return this.fetch(input, init);
-    }
-
-    if (response.status === 401) {
-      this.log.warn("401 response", await response.text());
-      throw new this.api.hap.HapStatusError(
-        this.api.hap.HAPStatus.INSUFFICIENT_AUTHORIZATION,
-      );
     }
 
     if (!response.ok) {
