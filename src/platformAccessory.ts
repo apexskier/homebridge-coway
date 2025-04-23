@@ -215,10 +215,6 @@ export class CowayPlatformAccessory {
                   ? Power.On
                   : Power.Off,
             },
-            {
-              funcId: FunctionId.Mode,
-              cmdVal: Mode.Smart,
-            },
           ]),
         ),
       );
