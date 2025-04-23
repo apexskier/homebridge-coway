@@ -7,7 +7,7 @@ import {
   Service,
   Characteristic,
 } from "homebridge";
-import { parse } from "node-html-parser";
+import { parse as htmlParse } from "node-html-parser";
 
 import { PLATFORM_NAME, PLUGIN_NAME } from "./settings";
 import { AccessoryContext, CowayPlatformAccessory } from "./platformAccessory";
@@ -151,7 +151,7 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
       },
     );
     const body = await openIDInitResponse.text();
-    const htmlRoot = parse(body);
+    const htmlRoot = htmlParse(body);
     const loginForm = htmlRoot.querySelector("#kc-form-login");
     if (!loginForm) {
       this.log.error("missing login form", body);
@@ -183,11 +183,9 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
     loginRequestBody.append("rememberMe", "on");
 
     this.accessToken = "";
-    // need to use search params for proper encoding for some reason
-    const loginRequestBodyRaw = loginRequestBody.toString();
-    const loginResponse = await fetch(loginUrl, {
+    let loginResponse = await fetch(loginUrl, {
       method: loginMethod,
-      body: loginRequestBodyRaw,
+      body: loginRequestBody.toString(),
       redirect: "manual",
       headers: {
         Cookie: openIDCookies ?? "",
@@ -201,9 +199,54 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
       },
     });
 
+    if (loginResponse.status === 200) {
+      // some UI was rendered, could be password reset reminder
+      const body = await loginResponse.text();
+      const htmlRoot = htmlParse(body);
+      const passwordChangeForm = htmlRoot.querySelector(
+        "#kc-password-change-form",
+      );
+      if (passwordChangeForm) {
+        this.log.info("password change form found, skipping it");
+
+        // password reset reminder, submit "not now"
+        const changePasswordURL = new URL(
+          "https://id.coway.com/auth/realms/cw-account/login-actions/authenticate",
+        );
+        // changePasswordURL.searchParams.append("session_code", "");
+        // changePasswordURL.searchParams.append("execution", "code");
+        // changePasswordURL.searchParams.append("client_id", "cwid-prd-iocare-20240327");
+        // changePasswordURL.searchParams.append("tap_id", "");
+
+        const changePasswordBody = new URLSearchParams();
+        changePasswordBody.append("cmd", "change_after_30days"); // or, "change_next_time"
+        // skipPasswordChangeBody.append("checkPasswordNeededYn", "Y");
+        // skipPasswordChangeBody.append("current_password", "");
+        // skipPasswordChangeBody.append("new_password", "");
+        // skipPasswordChangeBody.append("new_password_confirm", "");
+
+        this.accessToken = "";
+        loginResponse = await fetch(changePasswordURL, {
+          method: "POST",
+          body: changePasswordBody.toString(),
+          redirect: "manual",
+          headers: {
+            Cookie: openIDCookies ?? "",
+            "Content-Type": "application/x-www-form-urlencoded",
+
+            "User-Agent":
+              "Mozilla/5.0 (iPhone; CPU iPhone OS 10_3_1 like Mac OS X) AppleWebKit/603.1.30 (KHTML, like Gecko) Version/10.0 Mobile/14E304 Safari/602.1 app",
+            Accept:
+              "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+          },
+        });
+      }
+    }
+
     if (loginResponse.status !== 302) {
       this.log.error(
-        "authenticate didn't redirect",
+        `authenticate didn't redirect, ${loginResponse.status}`,
         await loginResponse.text(),
       );
       throw new this.api.hap.HapStatusError(
