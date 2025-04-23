@@ -8,7 +8,7 @@
 
 This extension provides control for the [Coway Airmega 250S](https://cowaymega.com/products/airmega-250) air purifier. Other models may be supported as well.
 
-Outdoor air quality is pulled from the AirNow API through Coway's API.
+Light settings are retained when fan speed, etc is changed, which Coway's IOCare app doesn't do.
 
 ## Unsupported
 
