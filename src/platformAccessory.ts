@@ -347,7 +347,7 @@ export class CowayPlatformAccessory {
         if (pm25 >= 36) {
           return this.platform.Characteristic.AirQuality.FAIR;
         }
-        if (pm25 >= 16) {
+        if (pm25 >= 12) {
           return this.platform.Characteristic.AirQuality.GOOD;
         }
         if (pm25 >= 0) {
