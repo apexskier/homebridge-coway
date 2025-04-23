@@ -215,6 +215,10 @@ export class CowayPlatformAccessory {
                   ? Power.On
                   : Power.Off,
             },
+            {
+              funcId: FunctionId.Mode,
+              cmdVal: Mode.Smart,
+            },
           ]),
         ),
       );
@@ -262,7 +266,8 @@ export class CowayPlatformAccessory {
     airPurifierService
       .getCharacteristic(this.platform.Characteristic.RotationSpeed)
       .onGet(() => {
-        switch (this.guardedOnlineData().prodStatus.airVolume) {
+        const airVolume = this.guardedOnlineData().prodStatus.airVolume;
+        switch (airVolume) {
           case Fan.Low:
             return 33;
           case Fan.Medium:
@@ -272,9 +277,7 @@ export class CowayPlatformAccessory {
           case Fan.Off:
             return 0;
           default:
-            throw new Error(
-              `unknown fan ${this.guardedOnlineData().prodStatus.airVolume}`,
-            );
+            throw new Error(`unknown fan ${airVolume}`);
         }
       })
       .onSet(
@@ -428,7 +431,7 @@ export class CowayPlatformAccessory {
       `https://iocareapi.iot.coway.com/api/v1/com/devices/${this.accessory.context.device.barcode}/control`,
     );
     url.searchParams.append("devId", this.accessory.context.device.barcode);
-    url.searchParams.append("mqttDevice", "true");
+    url.searchParams.append("mqttDevice", "true"); // I wish
     url.searchParams.append(
       "dvcBrandCd",
       this.accessory.context.device.dvcBrandCd,
@@ -439,14 +442,12 @@ export class CowayPlatformAccessory {
     );
     url.searchParams.append("prodName", this.accessory.context.device.prodName);
 
-    const response = await this.platform.fetch(url);
-
-    const body = (await response.json()) as Response<{
+    return (await (await this.platform.fetch(url)).json()) as Response<{
       controlStatus: {
-        "0001": string; // "1"
-        "0002": string; // "1"
-        "0003": string; // "1"
-        "0007": string; // "2"
+        [FunctionId.Power]: Power; // "1"
+        [FunctionId.Mode]: Mode; // "1"
+        [FunctionId.Fan]: Fan; // "1"
+        [FunctionId.Light]: Light;
         "0008": string; // "0"
         "000A": string; // "2"
         "000E": string; // "1"
@@ -469,11 +470,16 @@ export class CowayPlatformAccessory {
       netStatus: boolean; // true
       waterLevel: number; // 0
     }>;
-
-    this.platform.log.debug("com device", body);
   }
 
-  private async controlDevice(commands: ReadonlyArray<FunctionI<FunctionId>>) {
+  private async controlDevice(commands: Array<FunctionI<FunctionId>>) {
+    if (!commands[FunctionId.Light]) {
+      const comDV = await this.comDevice();
+      commands.push({
+        funcId: FunctionId.Light,
+        cmdVal: comDV.data.controlStatus[FunctionId.Light],
+      });
+    }
     const body = JSON.stringify({
       devId: this.accessory.context.device.barcode,
       funcList: commands,
