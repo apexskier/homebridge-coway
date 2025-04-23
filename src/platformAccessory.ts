@@ -316,8 +316,7 @@ export class CowayPlatformAccessory {
     indoorAirQualityService
       .getCharacteristic(this.platform.Characteristic.AirQuality)
       .onGet(() => {
-        const { inairquality: airQuality, dustpm25 } =
-          this.guardedOnlineData().IAQ;
+        const airQuality = this.guardedOnlineData().IAQ.inairquality;
         switch (airQuality) {
           case AirQuality.Excellent:
             return this.platform.Characteristic.AirQuality.EXCELLENT;
@@ -327,28 +326,34 @@ export class CowayPlatformAccessory {
             return this.platform.Characteristic.AirQuality.FAIR;
           case AirQuality.Inferior:
             return this.platform.Characteristic.AirQuality.INFERIOR;
-          default: {
-            // fall back to pm2.5
-            const pm25 = parseInt(dustpm25, 10);
-            if (pm25 >= 151) {
-              return this.platform.Characteristic.AirQuality.POOR;
-            }
-            if (pm25 >= 56) {
-              return this.platform.Characteristic.AirQuality.INFERIOR;
-            }
-            if (pm25 >= 36) {
-              return this.platform.Characteristic.AirQuality.FAIR;
-            }
-            if (pm25 >= 16) {
-              return this.platform.Characteristic.AirQuality.GOOD;
-            }
-            if (pm25 >= 0) {
-              return this.platform.Characteristic.AirQuality.EXCELLENT;
-            }
-
-            throw new Error(`unknown fan ${airQuality} ${dustpm25}`);
-          }
+          case "":
+            this.platform.log.debug(`no air quality, falling back to pm2.5`);
+            break;
+          default:
+            this.platform.log.warn(
+              `unknown air quality "${airQuality}", falling back to pm2.5`,
+            );
         }
+
+        // fall back to pm2.5
+        const { dustpm25 } = this.guardedOnlineData().IAQ;
+        const pm25 = parseInt(dustpm25, 10);
+        if (pm25 >= 151) {
+          return this.platform.Characteristic.AirQuality.POOR;
+        }
+        if (pm25 >= 56) {
+          return this.platform.Characteristic.AirQuality.INFERIOR;
+        }
+        if (pm25 >= 36) {
+          return this.platform.Characteristic.AirQuality.FAIR;
+        }
+        if (pm25 >= 12) {
+          return this.platform.Characteristic.AirQuality.GOOD;
+        }
+        if (pm25 >= 0) {
+          return this.platform.Characteristic.AirQuality.EXCELLENT;
+        }
+        throw new Error(`unknown dustpm25 ${dustpm25}`);
       });
     indoorAirQualityService
       .getCharacteristic(this.platform.Characteristic.PM2_5Density)
