@@ -55,6 +55,7 @@ enum Fan {
   Medium = "2",
   High = "3",
   Off = "0",
+  Unknown = "99",
 }
 
 enum Mode {
@@ -270,6 +271,7 @@ export class CowayPlatformAccessory {
             return 66;
           case Fan.High:
             return 100;
+          case Fan.Unknown:
           case Fan.Off:
             return 0;
           default:
