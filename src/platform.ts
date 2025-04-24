@@ -301,8 +301,17 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
       return this.fetch(input, init);
     }
 
+    if (response.status === 400) {
+      const body = await response.json();
+      if (body.message.startsWith("Unauthenticated")) {
+        this.log.warn(`unauthenticated, trying again`, body);
+        await this.reauthorize();
+        return this.fetch(input, init);
+      }
+    }
+
     if (!response.ok) {
-      this.log.warn("non-ok response", await response.text());
+      this.log.warn("non-ok response", input.toString(), await response.text());
       throw new this.api.hap.HapStatusError(
         this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
       );
