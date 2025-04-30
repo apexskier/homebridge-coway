@@ -244,6 +244,7 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
     this.refreshToken = refreshToken;
   }
 
+  // TODO: This isn't working, I'm getting 400 rate limiting errors of some sort
   async reauthorize() {
     const tokenResponse = await fetch(
       "https://iocareapi.iot.coway.com/api/v1/com/refresh-token",
@@ -256,6 +257,11 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
       },
     );
     if (tokenResponse.status !== 200) {
+      this.log.debug(
+        "refresh token failed",
+        tokenResponse,
+        await tokenResponse.text(),
+      );
       throw new this.api.hap.HapStatusError(
         this.api.hap.HAPStatus.INSUFFICIENT_AUTHORIZATION,
       );
@@ -297,7 +303,7 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
         } ${input.toString()})`,
         await response.text(),
       );
-      await this.reauthorize();
+      await this.authorize();
       return this.fetch(input, init);
     }
 
@@ -305,7 +311,7 @@ export class CowayHomebridgePlatform implements DynamicPlatformPlugin {
       const body = await response.json();
       if (body.message.startsWith("Unauthenticated")) {
         this.log.warn(`unauthenticated, trying again`, body);
-        await this.reauthorize();
+        await this.authorize();
         return this.fetch(input, init);
       }
     }
