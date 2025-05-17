@@ -6,10 +6,10 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/apexskier/homebridge-airmega.git"
+    "url": "git+https://github.com/apexskier/homebridge-coway.git"
   },
   "bugs": {
-    "url": "https://github.com/apexskier/homebridge-airmega/issues"
+    "url": "https://github.com/apexskier/homebridge-coway/issues"
   },
   "funding": [
     {
